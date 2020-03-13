@@ -23,7 +23,8 @@ import           Ouroboros.Consensus.Node.DbMarker (DbMarkerError)
 import           Ouroboros.Consensus.Node.ProtocolInfo.Byron
                      (PBftLeaderCredentialsError)
 import           Ouroboros.Consensus.Util.ResourceRegistry
-                     (RegistryClosedException, ResourceRegistryThreadException)
+                     (RegistryClosedException, ResourceRegistryThreadException,
+                     TempRegistryException)
 
 consensusErrorPolicy :: ErrorPolicies addr ()
 consensusErrorPolicy = ErrorPolicies {
@@ -88,6 +89,7 @@ consensusErrorPolicy = ErrorPolicies {
           -- the connection but leave the rest of the node running.
         , ErrorPolicy $ \(_ :: RegistryClosedException)         -> Just ourBug
         , ErrorPolicy $ \(_ :: ResourceRegistryThreadException) -> Just ourBug
+        , ErrorPolicy $ \(_ :: TempRegistryException)           -> Just ourBug
 
           -- An exception in the block fetch server meant the client asked
           -- for some blocks we used to have but got GCed. This means the
