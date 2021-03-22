@@ -1,6 +1,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Ouroboros.Consensus.Node.ErrorPolicy (consensusErrorPolicy) where
+module Ouroboros.Consensus.Node.ErrorPolicy (
+    consensusErrorPolicy
+  ) where
 
 import           Control.Exception
 import           Data.Time.Clock (DiffTime)
