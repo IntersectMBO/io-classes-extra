@@ -18,7 +18,7 @@ license-files:
 
 copyright: 2024 INTERSECT
 author: IOG Engineering Team
-maintainer: operations@iohk.io, Javier Sagredo
+maintainer: operations@iohk.io
 category: Concurrency
 build-type: Simple
 extra-doc-files:
