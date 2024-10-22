@@ -31,6 +31,12 @@ source-repository head
   location: https://github.com/IntersectMBO/io-classes-extra
   subdir: resource-registry
 
+source-repository this
+  type: git
+  location: https://github.com/IntersectMBO/io-classes-extra
+  subdir: resource-registry
+  tag: resource-registry-0.1.0.0
+
 common warnings
   ghc-options:
     -Wall
