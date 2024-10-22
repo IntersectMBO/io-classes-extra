@@ -158,7 +158,7 @@ jobs:
         git diff --exit-code
 
   # Check formatting for cabal files
-  cabal-fmt:
+  cabal-gild:
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -199,22 +199,22 @@ jobs:
     - name: Cache cabal store
       uses: actions/cache@v4
       env:
-        cache-name: cache-cabal-cabal-fmt
+        cache-name: cache-cabal-cabal-gild
       with:
         path: ${{ steps.setup-haskell.outputs.cabal-store }}
         key: ${{ runner.os }}-${{ matrix.ghc }}-${{ env.cache-name }}-${{ env.hackage-index-state }}
         restore-keys: |
           ${{ runner.os }}-${{ matrix.ghc }}-${{ env.cache-name }}-
 
-    - name: Install cabal-fmt
-      run: cabal install --ignore-project --index-state="${{ env.hackage-index-state }}" cabal-fmt-0.1.12
+    - name: Install cabal-gild
+      run: cabal install --ignore-project --index-state="${{ env.hackage-index-state }}" cabal-gild-1.5.0.1
 
-    - name: Record cabal-fmt version
+    - name: Record cabal-gild version
       run: |
-        which cabal-fmt
-        cabal-fmt --version
+        which cabal-gild
+        cabal-gild --version
 
-    - name: Run cabal-fmt
+    - name: Run cabal-gild
       run: |
         ./scripts/format-cabal.sh
         git diff --exit-code
