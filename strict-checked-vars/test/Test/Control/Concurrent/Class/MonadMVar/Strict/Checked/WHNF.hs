@@ -2,18 +2,17 @@
 
 module Test.Control.Concurrent.Class.MonadMVar.Strict.Checked.WHNF where
 
-import           Control.Concurrent.Class.MonadMVar.Strict.Checked hiding
-                     (newEmptyMVar, newEmptyMVarWithInvariant, newMVar,
-                     newMVarWithInvariant)
-import qualified Control.Concurrent.Class.MonadMVar.Strict.Checked as Checked
-import           Control.Monad (void)
-import           Control.Monad.IOSim (runSimOrThrow)
-import           Data.Typeable (Typeable)
-import           NoThunks.Class (OnlyCheckWhnf (..), unsafeNoThunks)
-import           Test.Tasty (TestTree, testGroup)
-import           Test.Tasty.QuickCheck (Fun, Property, applyFun, counterexample,
-                     ioProperty, property, testProperty, (.&&.))
-import           Test.Utils (Invariant (..), (..:))
+import Control.Concurrent.Class.MonadMVar.Strict.Checked hiding (newEmptyMVar,
+           newEmptyMVarWithInvariant, newMVar, newMVarWithInvariant)
+import Control.Concurrent.Class.MonadMVar.Strict.Checked qualified as Checked
+import Control.Monad (void)
+import Control.Monad.IOSim (runSimOrThrow)
+import Data.Typeable (Typeable)
+import NoThunks.Class (OnlyCheckWhnf (..), unsafeNoThunks)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.QuickCheck (Fun, Property, applyFun, counterexample,
+           ioProperty, property, testProperty, (.&&.))
+import Test.Utils (Invariant (..), (..:))
 
 {-------------------------------------------------------------------------------
   Main test tree

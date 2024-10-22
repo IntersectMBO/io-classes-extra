@@ -1,21 +1,20 @@
-{-# LANGUAGE LambdaCase    #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
 
 module Test.Control.Concurrent.Class.MonadSTM.Strict.TVar.Checked.WHNF where
 
-import           Control.Concurrent.Class.MonadSTM (MonadSTM, STM, atomically)
-import           Control.Concurrent.Class.MonadSTM.Strict.TVar.Checked hiding
-                     (newTVar, newTVarIO, newTVarWithInvariant,
-                     newTVarWithInvariantIO)
-import qualified Control.Concurrent.Class.MonadSTM.Strict.TVar.Checked as Checked
-import           Control.Monad (void)
-import           Control.Monad.IOSim (runSimOrThrow)
-import           Data.Typeable (Typeable)
-import           NoThunks.Class (OnlyCheckWhnf (..), unsafeNoThunks)
-import           Test.Tasty (TestTree, testGroup)
-import           Test.Tasty.QuickCheck (Fun, Property, applyFun, counterexample,
-                     ioProperty, property, testProperty)
-import           Test.Utils (Invariant (..), (..:))
+import Control.Concurrent.Class.MonadSTM (MonadSTM, STM, atomically)
+import Control.Concurrent.Class.MonadSTM.Strict.TVar.Checked hiding (newTVar,
+           newTVarIO, newTVarWithInvariant, newTVarWithInvariantIO)
+import Control.Concurrent.Class.MonadSTM.Strict.TVar.Checked qualified as Checked
+import Control.Monad (void)
+import Control.Monad.IOSim (runSimOrThrow)
+import Data.Typeable (Typeable)
+import NoThunks.Class (OnlyCheckWhnf (..), unsafeNoThunks)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.QuickCheck (Fun, Property, applyFun, counterexample,
+           ioProperty, property, testProperty)
+import Test.Utils (Invariant (..), (..:))
 
 {-------------------------------------------------------------------------------
   Main test tree

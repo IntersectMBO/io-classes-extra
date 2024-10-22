@@ -128,13 +128,13 @@ module Control.RAWLock (
   , unsafeReleaseWriteAccess
   ) where
 
-import           Control.Concurrent.Class.MonadMVar.Strict
-import           Control.Concurrent.Class.MonadSTM.Strict
-import           Control.Monad.Class.MonadThrow
-import           GHC.Generics
-import           GHC.Stack (CallStack, HasCallStack, callStack)
-import           NoThunks.Class
-import           Prelude hiding (read)
+import Control.Concurrent.Class.MonadMVar.Strict
+import Control.Concurrent.Class.MonadSTM.Strict
+import Control.Monad.Class.MonadThrow
+import GHC.Generics
+import GHC.Stack (CallStack, HasCallStack, callStack)
+import NoThunks.Class
+import Prelude hiding (read)
 
 -- | Any non-negative number of readers
 newtype Readers = Readers Word

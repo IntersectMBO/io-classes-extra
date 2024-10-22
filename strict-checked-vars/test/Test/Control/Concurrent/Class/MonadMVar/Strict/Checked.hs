@@ -1,13 +1,13 @@
-{-# LANGUAGE CPP        #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE RankNTypes #-}
 
 module Test.Control.Concurrent.Class.MonadMVar.Strict.Checked where
 
-import           Control.Concurrent.Class.MonadMVar.Strict.Checked
-import           Test.QuickCheck.Monadic
-import           Test.Tasty
-import           Test.Tasty.QuickCheck
-import           Test.Utils
+import Control.Concurrent.Class.MonadMVar.Strict.Checked
+import Test.QuickCheck.Monadic
+import Test.Tasty
+import Test.Tasty.QuickCheck
+import Test.Utils
 
 tests :: TestTree
 tests = testGroup "Test.Control.Concurrent.Class.MonadMVar.Strict" [

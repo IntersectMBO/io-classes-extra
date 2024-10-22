@@ -13,13 +13,12 @@ module Test.Utils (
   , whnfInvariant
   ) where
 
-import           Control.Monad.IOSim (IOSim, runSimOrThrow)
-import           Data.Typeable (Typeable)
-import           NoThunks.Class (OnlyCheckWhnf (..), unsafeNoThunks)
-import           Test.QuickCheck (Arbitrary (..), Gen, Property, Testable (..),
-                     elements)
-import           Test.QuickCheck.Gen.Unsafe (Capture (..), capture)
-import           Test.QuickCheck.Monadic (PropertyM, monadic')
+import Control.Monad.IOSim (IOSim, runSimOrThrow)
+import Data.Typeable (Typeable)
+import NoThunks.Class (OnlyCheckWhnf (..), unsafeNoThunks)
+import Test.QuickCheck (Arbitrary (..), Gen, Property, Testable (..), elements)
+import Test.QuickCheck.Gen.Unsafe (Capture (..), capture)
+import Test.QuickCheck.Monadic (PropertyM, monadic')
 
 {-------------------------------------------------------------------------------
   Property runners (copied from "Ouroboros.Network.Testing.QuickCheck")

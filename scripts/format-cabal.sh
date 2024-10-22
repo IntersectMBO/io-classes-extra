@@ -15,7 +15,7 @@ if ! command -v "$fdcmd" &> /dev/null; then
     fi
 fi
 
-$fdcmd -p . -e cabal -x cabal-fmt -i
+$fdcmd -p . -e cabal -x cabal-gild --io
 
 case "$(uname -s)" in
     MINGW*) git ls-files --eol | grep "w/crlf" | awk '{print $4}' | xargs dos2unix;;

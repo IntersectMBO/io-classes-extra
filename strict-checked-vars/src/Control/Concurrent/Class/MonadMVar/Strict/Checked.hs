@@ -1,10 +1,10 @@
-{-# LANGUAGE BangPatterns             #-}
-{-# LANGUAGE CPP                      #-}
-{-# LANGUAGE NamedFieldPuns           #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
-{-# LANGUAGE TupleSections            #-}
-{-# LANGUAGE TypeFamilies             #-}
-{-# LANGUAGE TypeOperators            #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 -- | This module corresponds to "Control.Concurrent.MVar" in the @base@ package.
 --
@@ -42,10 +42,10 @@ module Control.Concurrent.Class.MonadMVar.Strict.Checked (
   , MonadMVar
   ) where
 
-import           Control.Concurrent.Class.MonadMVar.Strict (LazyMVar, MonadMVar)
-import qualified Control.Concurrent.Class.MonadMVar.Strict as Strict
-import           Data.Kind (Type)
-import           GHC.Stack (HasCallStack)
+import Control.Concurrent.Class.MonadMVar.Strict (LazyMVar, MonadMVar)
+import Control.Concurrent.Class.MonadMVar.Strict qualified as Strict
+import Data.Kind (Type)
+import GHC.Stack (HasCallStack)
 
 {-------------------------------------------------------------------------------
   StrictMVar

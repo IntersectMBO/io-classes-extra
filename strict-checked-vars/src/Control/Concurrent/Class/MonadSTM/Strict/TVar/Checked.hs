@@ -1,8 +1,8 @@
-{-# LANGUAGE BangPatterns   #-}
-{-# LANGUAGE CPP            #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE TypeFamilies   #-}
-{-# LANGUAGE TypeOperators  #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 -- | This module corresponds to "Control.Concurrent.STM.TVar" in the @stm@ package.
 --
@@ -37,11 +37,10 @@ module Control.Concurrent.Class.MonadSTM.Strict.TVar.Checked (
   , checkInvariant
   ) where
 
-import           Control.Concurrent.Class.MonadSTM (InspectMonad,
-                     MonadLabelledSTM, MonadSTM, MonadTraceSTM, STM, TraceValue,
-                     atomically)
-import qualified Control.Concurrent.Class.MonadSTM.Strict.TVar as Strict
-import           GHC.Stack (HasCallStack)
+import Control.Concurrent.Class.MonadSTM (InspectMonad, MonadLabelledSTM,
+           MonadSTM, MonadTraceSTM, STM, TraceValue, atomically)
+import Control.Concurrent.Class.MonadSTM.Strict.TVar qualified as Strict
+import GHC.Stack (HasCallStack)
 
 {-------------------------------------------------------------------------------
   StrictTVar
