@@ -10,7 +10,6 @@ module Main (main) where
 
 import Control.Concurrent.Class.MonadSTM.Strict
 import Control.Exception (throw)
-import Control.Monad (void)
 import Control.Monad.Class.MonadAsync
 import Control.Monad.Class.MonadFork
 import Control.Monad.Class.MonadSay
@@ -308,7 +307,7 @@ prop_unsafe_actions actions@(a1, a2, a3) = counterexample (show actions) $
                       (atomically (unsafeAcquireReadAccess l))
                       (const $ atomically (unsafeReleaseReadAccess l))
                       (say . ("Read: " <>) . show)
-            Incr -> void $ generalBracket
+            Incr -> generalBracket
                       (unsafeAcquireWriteAccess l)
                       (\orig -> \case
                           ExitCaseSuccess s' -> unsafeReleaseWriteAccess l s'
@@ -317,8 +316,8 @@ prop_unsafe_actions actions@(a1, a2, a3) = counterexample (show actions) $
                       (\s -> do
                           say ("Incr: " <> show s)
                           pure (s + 1)
-                      )
-            Append -> void $ generalBracket
+                      ) >> pure ()
+            Append -> generalBracket
                         (unsafeAcquireAppendAccess l)
                         (\orig -> \case
                             ExitCaseSuccess s' -> unsafeReleaseAppendAccess l s'
@@ -327,7 +326,7 @@ prop_unsafe_actions actions@(a1, a2, a3) = counterexample (show actions) $
                         (\s -> do
                             say ("Append: " <> show s)
                             pure (s + 1)
-                        )
+                        ) >> pure ()
       t1 <- async $ c a1
       t2 <- async $ c a2
       t3 <- async $ c a3

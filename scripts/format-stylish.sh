@@ -31,7 +31,7 @@ if ! command -v "$fdcmd" &> /dev/null; then
     fi
 fi
 
-$fdcmd $PARGS -e hs -E test/Main.hs -X stylish-haskell $CARGS -i
+$fdcmd $PARGS -e hs -E resource-registry/test/Main.hs -X stylish-haskell $CARGS -i
 
 case "$(uname -s)" in
     MINGW*) git ls-files --eol | grep "w/crlf" | awk '{print $4}' | xargs dos2unix;;
