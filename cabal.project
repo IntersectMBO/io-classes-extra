@@ -1,0 +1,11 @@
+index-state: hackage.haskell.org 2024-10-17T07:25:36Z
+
+packages:
+  rawlock
+  resource-registry
+  strict-checked-vars
+
+package strict-checked-vars
+  flags: +checktvarinvariants +checkmvarinvariants
+
+tests: True
