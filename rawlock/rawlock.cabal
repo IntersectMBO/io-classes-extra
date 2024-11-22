@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name: rawlock
-version: 0.1.0.0
+version: 0.1.1.0
 synopsis: A writer-biased RAW lock.
 description:
   A writer-biased RAW lock.
@@ -37,7 +37,7 @@ source-repository this
   type: git
   location: https://github.com/IntersectMBO/io-classes-extra
   subdir: rawlock
-  tag: rawlock-0.1.0.0
+  tag: rawlock-0.1.1.0
 
 common warnings
   ghc-options:

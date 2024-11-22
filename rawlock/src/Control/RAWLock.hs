@@ -155,7 +155,7 @@ data RAWState = RAWState {
     waitingReaders   :: !Readers
   , waitingAppenders :: !Appenders
   , waitingWriters   :: !Writers
-  } deriving Show
+  } deriving (Show, Generic, NoThunks)
 
 noWriters :: Poisonable RAWState -> Bool
 noWriters (Healthy (RAWState _ _ w)) = w == 0
