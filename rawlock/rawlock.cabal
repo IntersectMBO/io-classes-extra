@@ -37,7 +37,7 @@ source-repository this
   type: git
   location: https://github.com/IntersectMBO/io-classes-extra
   subdir: rawlock
-  tag: rawlock-0.1.0.0
+  tag: rawlock-0.1.1.0
 
 common warnings
   ghc-options:
