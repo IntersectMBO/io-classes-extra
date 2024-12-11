@@ -60,10 +60,8 @@ library
   default-extensions: ImportQualifiedPost
   build-depends:
     base >=4.14 && <4.21,
-    io-classes ^>=1.5,
+    io-classes:{io-classes, strict-mvar, strict-stm} ^>=1.7,
     nothunks ^>=0.2,
-    strict-mvar ^>=1.5,
-    strict-stm ^>=1.5,
 
 test-suite rawlock-test
   import: warnings
@@ -74,10 +72,9 @@ test-suite rawlock-test
   build-depends:
     QuickCheck,
     base,
-    io-classes,
+    io-classes:{io-classes, strict-stm},
     io-sim,
     mtl,
     rawlock,
-    strict-stm,
     tasty,
     tasty-quickcheck,
