@@ -37,7 +37,7 @@ module Control.Concurrent.Class.MonadSTM.Strict.TVar.Checked (
   , checkInvariant
   ) where
 
-import Control.Concurrent.Class.MonadSTM (InspectMonad, MonadLabelledSTM,
+import Control.Concurrent.Class.MonadSTM (InspectMonadSTM, MonadLabelledSTM,
            MonadSTM, MonadTraceSTM, STM, TraceValue, atomically)
 import Control.Concurrent.Class.MonadSTM.Strict.TVar qualified as Strict
 import GHC.Stack (HasCallStack)
@@ -185,12 +185,12 @@ labelTVarIO v = atomically . labelTVar v
 traceTVar :: MonadTraceSTM m
           => proxy m
           -> StrictTVar m a
-          -> (Maybe a -> a -> InspectMonad m TraceValue)
+          -> (Maybe a -> a -> InspectMonadSTM m TraceValue)
           -> STM m ()
 traceTVar p = Strict.traceTVar p . tvar
 
 traceTVarIO :: MonadTraceSTM m
             => StrictTVar m a
-            -> (Maybe a -> a -> InspectMonad m TraceValue)
+            -> (Maybe a -> a -> InspectMonadSTM m TraceValue)
             -> m ()
 traceTVarIO = Strict.traceTVarIO . tvar
