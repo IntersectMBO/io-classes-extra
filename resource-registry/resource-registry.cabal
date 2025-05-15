@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name: resource-registry
-version: 0.1.0.0
+version: 0.1.1.0
 synopsis: Track allocated resources
 description:
   When the scope of a @bracket@ doesn't enclose all uses of the resource, a
