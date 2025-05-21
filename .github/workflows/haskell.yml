@@ -23,16 +23,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ["8.10", "9.2", "9.4", "9.6", "9.8", "9.10"]
+        ghc: ["9.6", "9.8", "9.10"]
         cabal: ["3.12.1.0"]
         os: [ubuntu-latest, windows-latest, macOS-latest]
-        exclude:
-        - ghc: "8.10"
-          os: macOS-latest
-        include:
-        - ghc: "8.10"
-          cabal: "3.12.1.0"
-          os: macOS-13
 
     steps:
     - name: Checkout repository
