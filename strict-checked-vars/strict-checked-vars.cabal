@@ -24,7 +24,7 @@ extra-doc-files:
   README.md
 
 bug-reports: https://github.com/input-output-hk/cardano-base/issues
-tested-with: ghc ==9.6 || ==9.8 || ==9.10 || == 9.12
+tested-with: ghc ==9.6 || ==9.8 || ==9.10 || ==9.12
 
 source-repository head
   type: git

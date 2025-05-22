@@ -1,7 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 -- | This module implements QSM's @CanDiff@ typeclass using @tree-diff@'s
@@ -14,14 +13,14 @@ import Test.StateMachine.Diffing (CanDiff (..))
 import Test.StateMachine.Types.References qualified as QSM
 
 instance ToExpr x => CanDiff x where
-  type ADiff  x = Edit EditExpr
+  type ADiff x = Edit EditExpr
   type AnExpr x = Expr
 
-  toDiff             = toExpr
-  exprDiff         _ = T.exprDiff
+  toDiff = toExpr
+  exprDiff _ = T.exprDiff
   diffToDocCompact _ = ansiWlBgEditExprCompact
-  diffToDoc        _ = ansiWlBgEditExpr
-  exprToDoc        _ = ansiWlBgExpr
+  diffToDoc _ = ansiWlBgEditExpr
+  exprToDoc _ = ansiWlBgExpr
 
 {-------------------------------------------------------------------------------
   QSM's References instances

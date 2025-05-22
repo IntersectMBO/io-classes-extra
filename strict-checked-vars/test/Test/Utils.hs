@@ -1,11 +1,13 @@
 {-# LANGUAGE RankNTypes #-}
 
-module Test.Utils (
-    -- * Property runners
+module Test.Utils
+  ( -- * Property runners
     monadicSim
   , runSimGen
+
     -- * Function composition
   , (..:)
+
     -- * Invariants
   , Invariant (..)
   , noInvariant
@@ -26,8 +28,8 @@ import Test.QuickCheck.Monadic (PropertyM, monadic')
 
 runSimGen :: (forall s. Gen (IOSim s a)) -> Gen a
 runSimGen f = do
-    Capture eval <- capture
-    return $ runSimOrThrow (eval f)
+  Capture eval <- capture
+  return $ runSimOrThrow (eval f)
 
 monadicSim :: Testable a => (forall s. PropertyM (IOSim s) a) -> Property
 monadicSim m = property (runSimGen (monadic' m))
@@ -49,17 +51,18 @@ infixr 9 ..:
 --
 -- Testing with @'Invariant' (const Nothing)'@ /should/ be the same as testing
 -- with 'NoInvariant'.
-data Invariant a =
-    NoInvariant
+data Invariant a
+  = NoInvariant
   | Invariant String (a -> Maybe String)
 
 instance Show (Invariant a) where
-  show NoInvariant        = "NoInvariant"
+  show NoInvariant = "NoInvariant"
   show (Invariant name _) = "Invariant " <> name
 
 instance Typeable a => Arbitrary (Invariant a) where
-  arbitrary = elements [
-        noInvariant
+  arbitrary =
+    elements
+      [ noInvariant
       , whnfInvariant
       , trivialInvariant
       ]

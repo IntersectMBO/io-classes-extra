@@ -109,8 +109,8 @@
 --    'NoThunks' check when enabled.
 --
 --  * All public functions are exception-safe.
-module Control.RAWLock (
-    -- * API
+module Control.RAWLock
+  ( -- * API
     RAWLock
   , new
   , poison
@@ -118,6 +118,7 @@ module Control.RAWLock (
   , withAppendAccess
   , withReadAccess
   , withWriteAccess
+
     -- * Unsafe API
     -- $unsafe-api
   , unsafeAcquireAppendAccess
@@ -139,31 +140,32 @@ import Prelude hiding (read)
 -- | Any non-negative number of readers
 newtype Readers = Readers Word
   deriving newtype (Eq, Ord, Enum, Num, NoThunks)
-  deriving stock (Show)
+  deriving stock Show
 
 -- | Any non-negative number of writers
 newtype Writers = Writers Word
   deriving newtype (Eq, Ord, Enum, Num, NoThunks)
-  deriving stock (Show)
+  deriving stock Show
 
 -- | Any non-negative number of appenders
 newtype Appenders = Appenders Word
   deriving newtype (Eq, Ord, Enum, Num, NoThunks)
-  deriving stock (Show)
+  deriving stock Show
 
-data RAWState = RAWState {
-    waitingReaders   :: !Readers
+data RAWState = RAWState
+  { waitingReaders :: !Readers
   , waitingAppenders :: !Appenders
-  , waitingWriters   :: !Writers
-  } deriving (Show, Generic, NoThunks)
+  , waitingWriters :: !Writers
+  }
+  deriving (Show, Generic, NoThunks)
 
 noWriters :: Poisonable RAWState -> Bool
 noWriters (Healthy (RAWState _ _ w)) = w == 0
-noWriters _                          = True
+noWriters _ = True
 
 onlyWriters :: Poisonable RAWState -> Bool
 onlyWriters (Healthy (RAWState r a _)) = r == 0 && a == 0
-onlyWriters _                          = True
+onlyWriters _ = True
 
 pushReader :: Poisonable RAWState -> Poisonable RAWState
 pushReader = fmap (\(RAWState r a w) -> RAWState (r + 1) a w)
@@ -185,28 +187,31 @@ popWriter = fmap (\(RAWState r a w) -> RAWState r a (w - 1))
 
 -- | Data that can be replaced with an exception that should be thrown when
 -- found.
-data Poisonable st =
-    Healthy !st
+data Poisonable st
+  = Healthy !st
   | Poisoned !(AllowThunk SomeException)
   deriving (Generic, NoThunks, Functor)
 
-data RAWLock m st = RAWLock {
-    resource :: !(StrictTMVar m (Poisonable st))
+data RAWLock m st = RAWLock
+  { resource :: !(StrictTMVar m (Poisonable st))
   , appender :: !(StrictMVar m ())
-  , queues   :: !(StrictTVar m (Poisonable RAWState))
-  } deriving (Generic)
+  , queues :: !(StrictTVar m (Poisonable RAWState))
+  }
+  deriving Generic
 
-deriving instance ( NoThunks (StrictTMVar m (Poisonable st))
-                  , NoThunks (StrictMVar m ())
-                  , NoThunks (StrictTVar m (Poisonable RAWState))
-                  ) => NoThunks (RAWLock m st)
+deriving instance
+  ( NoThunks (StrictTMVar m (Poisonable st))
+  , NoThunks (StrictMVar m ())
+  , NoThunks (StrictTVar m (Poisonable RAWState))
+  ) =>
+  NoThunks (RAWLock m st)
 
 new ::
-     ( MonadMVar m
-     , MonadLabelledSTM m
-     )
-  => st
-  -> m (RAWLock m st)
+  ( MonadMVar m
+  , MonadLabelledSTM m
+  ) =>
+  st ->
+  m (RAWLock m st)
 new !st = do
   s <- newTMVarIO (Healthy st)
   atomically $ labelTMVar s "state"
@@ -226,23 +231,24 @@ read (RAWLock var _ _) = readTMVar var >>= throwPoisoned
 -- There is no need (although it is harmless) to release again the current
 -- actor once it has poisoned the lock.
 poison ::
-     (Exception e, MonadMVar m, MonadSTM m, MonadThrow (STM m), HasCallStack)
-  => RAWLock m st
-  -> (CallStack -> e)
-  -> m (Maybe st)
+  (Exception e, MonadMVar m, MonadSTM m, MonadThrow (STM m), HasCallStack) =>
+  RAWLock m st ->
+  (CallStack -> e) ->
+  m (Maybe st)
 poison (RAWLock var apm q) mkExc = do
-  st <- atomically $
-    tryReadTMVar var >>= \case
-      -- Keep original exception
-      Just (Poisoned (AllowThunk exc)) -> throwIO exc
-      Just (Healthy st) -> do
-        writeTMVar var (Poisoned (AllowThunk (toException (mkExc callStack))))
-        writeTVar q (Poisoned (AllowThunk (toException (mkExc callStack))))
-        pure (Just st)
-      Nothing -> do
-        writeTMVar var (Poisoned (AllowThunk (toException (mkExc callStack))))
-        writeTVar q (Poisoned (AllowThunk (toException (mkExc callStack))))
-        pure Nothing
+  st <-
+    atomically $
+      tryReadTMVar var >>= \case
+        -- Keep original exception
+        Just (Poisoned (AllowThunk exc)) -> throwIO exc
+        Just (Healthy st) -> do
+          writeTMVar var (Poisoned (AllowThunk (toException (mkExc callStack))))
+          writeTVar q (Poisoned (AllowThunk (toException (mkExc callStack))))
+          pure (Just st)
+        Nothing -> do
+          writeTMVar var (Poisoned (AllowThunk (toException (mkExc callStack))))
+          writeTVar q (Poisoned (AllowThunk (toException (mkExc callStack))))
+          pure Nothing
   _ <- tryPutMVar apm ()
   pure st
 
@@ -256,10 +262,10 @@ emptyRAWState = RAWState 0 0 0
 -- Will block when there is a writer or when a writer is waiting to take the
 -- lock.
 withReadAccess ::
-     (MonadSTM m, MonadCatch m, MonadThrow (STM m))
-  => RAWLock m st
-  -> (st -> m a)
-  -> m a
+  (MonadSTM m, MonadCatch m, MonadThrow (STM m)) =>
+  RAWLock m st ->
+  (st -> m a) ->
+  m a
 withReadAccess lock =
   bracket
     (atomically (unsafeAcquireReadAccess lock))
@@ -269,42 +275,44 @@ withReadAccess lock =
 --
 -- Will block when there is another writer, readers or appenders.
 withWriteAccess ::
-     (MonadSTM m, MonadCatch m, MonadThrow (STM m))
-  => RAWLock m st
-  -> (st -> m (a, st))
-  -> m a
+  (MonadSTM m, MonadCatch m, MonadThrow (STM m)) =>
+  RAWLock m st ->
+  (st -> m (a, st)) ->
+  m a
 withWriteAccess lock f =
-  fst . fst <$> generalBracket
-   (unsafeAcquireWriteAccess lock)
-   (\orig -> \case
-       ExitCaseSuccess (_, st) -> unsafeReleaseWriteAccess lock st
-       _ -> unsafeReleaseWriteAccess lock orig
-   )
-   f
+  fst . fst
+    <$> generalBracket
+      (unsafeAcquireWriteAccess lock)
+      ( \orig -> \case
+          ExitCaseSuccess (_, st) -> unsafeReleaseWriteAccess lock st
+          _ -> unsafeReleaseWriteAccess lock orig
+      )
+      f
 
 -- | Acquire the 'RAWLock' as an appender.
 --
 -- Will block when there is a writer or when there is another appender.
 withAppendAccess ::
-     (MonadThrow (STM m), MonadSTM m, MonadCatch m, MonadMVar m)
-  => RAWLock m st
-  -> (st -> m (a, st))
-  -> m a
+  (MonadThrow (STM m), MonadSTM m, MonadCatch m, MonadMVar m) =>
+  RAWLock m st ->
+  (st -> m (a, st)) ->
+  m a
 withAppendAccess lock f = do
-  fst . fst <$> generalBracket
-   (unsafeAcquireAppendAccess lock)
-   (\orig -> \case
-       ExitCaseSuccess (_, st) -> unsafeReleaseAppendAccess lock st
-       _ -> unsafeReleaseAppendAccess lock orig
-   )
-   f
+  fst . fst
+    <$> generalBracket
+      (unsafeAcquireAppendAccess lock)
+      ( \orig -> \case
+          ExitCaseSuccess (_, st) -> unsafeReleaseAppendAccess lock st
+          _ -> unsafeReleaseAppendAccess lock orig
+      )
+      f
 
 {-------------------------------------------------------------------------------
   Unsafe API
 -------------------------------------------------------------------------------}
 
 throwPoisoned :: MonadThrow m => Poisonable st -> m st
-throwPoisoned (Healthy st)                = pure st
+throwPoisoned (Healthy st) = pure st
 throwPoisoned (Poisoned (AllowThunk exc)) = throwIO exc
 
 -- $unsafe-api
@@ -320,9 +328,9 @@ throwPoisoned (Poisoned (AllowThunk exc)) = throwIO exc
 -- presence of an exception!
 
 unsafeAcquireReadAccess ::
-     (MonadThrow (STM m), MonadSTM m)
-  => RAWLock m st
-  -> STM m st
+  (MonadThrow (STM m), MonadSTM m) =>
+  RAWLock m st ->
+  STM m st
 unsafeAcquireReadAccess (RAWLock var _ qs) = do
   -- wait until there are no writers
   readTVar qs >>= check . noWriters
@@ -337,9 +345,9 @@ unsafeReleaseReadAccess (RAWLock _ _ qs) =
   modifyTVar qs popReader
 
 unsafeAcquireWriteAccess ::
-     (MonadThrow (STM m), MonadCatch m, MonadSTM m)
-  => RAWLock m st
-  -> m st
+  (MonadThrow (STM m), MonadCatch m, MonadSTM m) =>
+  RAWLock m st ->
+  m st
 unsafeAcquireWriteAccess (RAWLock var _ qs) = do
   -- queue myself if there are no other writers
   atomically $ do
@@ -347,18 +355,21 @@ unsafeAcquireWriteAccess (RAWLock var _ qs) = do
     readTVar qs >>= check . noWriters
     -- queue myself
     modifyTVar qs pushWriter
-  atomically (do
-    -- wait until there are no readers (and as I queued myself above, I'm the
-    -- only waiting writer)
-    readTVar qs >>= check . onlyWriters
-    -- acquire the state
-    throwPoisoned =<< takeTMVar var) `onException` atomically (modifyTVar qs popWriter)
+  atomically
+    ( do
+        -- wait until there are no readers (and as I queued myself above, I'm the
+        -- only waiting writer)
+        readTVar qs >>= check . onlyWriters
+        -- acquire the state
+        throwPoisoned =<< takeTMVar var
+    )
+    `onException` atomically (modifyTVar qs popWriter)
 
 unsafeReleaseWriteAccess ::
-     (MonadThrow (STM m), MonadSTM m)
-  => RAWLock m st
-  -> st
-  -> m ()
+  (MonadThrow (STM m), MonadSTM m) =>
+  RAWLock m st ->
+  st ->
+  m ()
 unsafeReleaseWriteAccess (RAWLock var _ qs) !st =
   atomically $ do
     -- write the new state
@@ -370,27 +381,28 @@ unsafeReleaseWriteAccess (RAWLock var _ qs) !st =
     modifyTVar qs popWriter
 
 unsafeAcquireAppendAccess ::
-     (MonadThrow (STM m), MonadCatch m, MonadMVar m, MonadSTM m)
-  => RAWLock m st
-  -> m st
+  (MonadThrow (STM m), MonadCatch m, MonadMVar m, MonadSTM m) =>
+  RAWLock m st ->
+  m st
 unsafeAcquireAppendAccess (RAWLock var apm qs) = do
   atomically $ do
     -- wait until there are no writers
     readTVar qs >>= check . noWriters
     -- queue myself
     modifyTVar qs pushAppender
-  (do
+  ( do
       -- lock the append access
       takeMVar apm
       -- acquire the state
       atomically (readTMVar var >>= throwPoisoned) `onException` putMVar apm ()
-    ) `onException` atomically (modifyTVar qs popAppender)
+    )
+    `onException` atomically (modifyTVar qs popAppender)
 
 unsafeReleaseAppendAccess ::
-     (MonadThrow (STM m), MonadMVar m, MonadSTM m)
-  => RAWLock m st
-  -> st
-  -> m ()
+  (MonadThrow (STM m), MonadMVar m, MonadSTM m) =>
+  RAWLock m st ->
+  st ->
+  m ()
 unsafeReleaseAppendAccess (RAWLock var apm qs) !st = do
   atomically $ do
     -- write the new state
