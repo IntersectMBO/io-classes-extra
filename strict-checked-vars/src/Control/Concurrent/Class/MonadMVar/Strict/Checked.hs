@@ -10,8 +10,8 @@
 --
 -- This module can be used as a drop-in replacement for
 -- "Control.Concurrent.Class.MonadMVar.Strict", but not the other way around.
-module Control.Concurrent.Class.MonadMVar.Strict.Checked (
-    -- * StrictMVar
+module Control.Concurrent.Class.MonadMVar.Strict.Checked
+  ( -- * StrictMVar
     LazyMVar
   , StrictMVar
   , castStrictMVar
@@ -36,8 +36,10 @@ module Control.Concurrent.Class.MonadMVar.Strict.Checked (
   , unsafeToUncheckedStrictMVar
   , withMVar
   , withMVarMasked
+
     -- * Invariant
   , checkInvariant
+
     -- * Re-exports
   , MonadMVar
   ) where
@@ -73,8 +75,9 @@ newtype StrictMVar m a = StrictMVar {
   }
 #endif
 
-castStrictMVar :: LazyMVar m ~ LazyMVar n
-               => StrictMVar m a -> StrictMVar n a
+castStrictMVar ::
+  LazyMVar m ~ LazyMVar n =>
+  StrictMVar m a -> StrictMVar n a
 castStrictMVar v = mkStrictMVar (getInvariant v) (Strict.castStrictMVar $ mvar v)
 
 -- | Get the underlying @MVar@
@@ -107,9 +110,10 @@ unsafeToUncheckedStrictMVar = mvar
 newEmptyMVar :: MonadMVar m => m (StrictMVar m a)
 newEmptyMVar = mkStrictMVar (const Nothing) <$> Strict.newEmptyMVar
 
-newEmptyMVarWithInvariant :: MonadMVar m
-                          => (a -> Maybe String)
-                          -> m (StrictMVar m a)
+newEmptyMVarWithInvariant ::
+  MonadMVar m =>
+  (a -> Maybe String) ->
+  m (StrictMVar m a)
 newEmptyMVarWithInvariant inv = mkStrictMVar inv <$> Strict.newEmptyMVar
 
 newMVar :: MonadMVar m => a -> m (StrictMVar m a)
@@ -119,13 +123,14 @@ newMVar a = mkStrictMVar (const Nothing) <$> Strict.newMVar a
 --
 -- Contrary to functions that modify a 'StrictMVar', this function checks the
 -- invariant /before/ putting the value in a new 'StrictMVar'.
-newMVarWithInvariant :: (HasCallStack, MonadMVar m)
-                     => (a -> Maybe String)
-                     -> a
-                     -> m (StrictMVar m a)
+newMVarWithInvariant ::
+  (HasCallStack, MonadMVar m) =>
+  (a -> Maybe String) ->
+  a ->
+  m (StrictMVar m a)
 newMVarWithInvariant inv !a =
   checkInvariant (inv a) $
-  mkStrictMVar inv <$> Strict.newMVar a
+    mkStrictMVar inv <$> Strict.newMVar a
 
 takeMVar :: MonadMVar m => StrictMVar m a -> m a
 takeMVar = Strict.takeMVar . mvar
@@ -161,48 +166,54 @@ withMVarMasked :: MonadMVar m => StrictMVar m a -> (a -> m b) -> m b
 withMVarMasked v = Strict.withMVarMasked (mvar v)
 
 -- | 'modifyMVar_' is defined in terms of 'modifyMVar'.
-modifyMVar_ :: (HasCallStack, MonadMVar m)
-            => StrictMVar m a
-            -> (a -> m a)
-            -> m ()
+modifyMVar_ ::
+  (HasCallStack, MonadMVar m) =>
+  StrictMVar m a ->
+  (a -> m a) ->
+  m ()
 modifyMVar_ v io = modifyMVar v io'
-  where io' a = (,()) <$> io a
+ where
+  io' a = (,()) <$> io a
 
-modifyMVar :: (HasCallStack, MonadMVar m)
-           => StrictMVar m a
-           -> (a -> m (a,b))
-           -> m b
+modifyMVar ::
+  (HasCallStack, MonadMVar m) =>
+  StrictMVar m a ->
+  (a -> m (a, b)) ->
+  m b
 modifyMVar v io = do
-    (a', b) <- Strict.modifyMVar (mvar v) io'
-    checkInvariant (getInvariant v a') $ pure b
-  where
-    io' a = do
-      (a', b) <- io a
-      -- Returning @a'@ along with @b@ allows us to check the invariant /after/
-      -- filling in the MVar.
-      pure (a' , (a', b))
+  (a', b) <- Strict.modifyMVar (mvar v) io'
+  checkInvariant (getInvariant v a') $ pure b
+ where
+  io' a = do
+    (a', b) <- io a
+    -- Returning @a'@ along with @b@ allows us to check the invariant /after/
+    -- filling in the MVar.
+    pure (a', (a', b))
 
 -- | 'modifyMVarMasked_' is defined in terms of 'modifyMVarMasked'.
-modifyMVarMasked_ :: (HasCallStack, MonadMVar m)
-                  => StrictMVar m a
-                  -> (a -> m a)
-                  -> m ()
+modifyMVarMasked_ ::
+  (HasCallStack, MonadMVar m) =>
+  StrictMVar m a ->
+  (a -> m a) ->
+  m ()
 modifyMVarMasked_ v io = modifyMVarMasked v io'
-  where io' a = (,()) <$> io a
+ where
+  io' a = (,()) <$> io a
 
-modifyMVarMasked :: (HasCallStack, MonadMVar m)
-                 => StrictMVar m a
-                 -> (a -> m (a,b))
-                 -> m b
+modifyMVarMasked ::
+  (HasCallStack, MonadMVar m) =>
+  StrictMVar m a ->
+  (a -> m (a, b)) ->
+  m b
 modifyMVarMasked v io = do
-    (a', b) <- Strict.modifyMVarMasked (mvar v) io'
-    checkInvariant (getInvariant v a') $ pure b
-  where
-    io' a = do
-      (a', b) <- io a
-      -- Returning @a'@ along with @b@ allows us to check the invariant /after/
-      -- filling in the MVar.
-      pure (a', (a', b))
+  (a', b) <- Strict.modifyMVarMasked (mvar v) io'
+  checkInvariant (getInvariant v a') $ pure b
+ where
+  io' a = do
+    (a', b) <- io a
+    -- Returning @a'@ along with @b@ allows us to check the invariant /after/
+    -- filling in the MVar.
+    pure (a', (a', b))
 
 tryReadMVar :: MonadMVar m => StrictMVar m a -> m (Maybe a)
 tryReadMVar v = Strict.tryReadMVar (mvar v)

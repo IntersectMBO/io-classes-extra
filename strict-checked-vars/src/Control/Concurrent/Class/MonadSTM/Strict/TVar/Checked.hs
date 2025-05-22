@@ -9,8 +9,8 @@
 -- This module can be used as a drop-in replacement for
 -- "Control.Concurrent.Class.MonadSTM.Strict.TVar", but not the other way
 -- around.
-module Control.Concurrent.Class.MonadSTM.Strict.TVar.Checked (
-    -- * StrictTVar
+module Control.Concurrent.Class.MonadSTM.Strict.TVar.Checked
+  ( -- * StrictTVar
     LazyTVar
   , StrictTVar
   , castStrictTVar
@@ -27,18 +27,28 @@ module Control.Concurrent.Class.MonadSTM.Strict.TVar.Checked (
   , toLazyTVar
   , unsafeToUncheckedStrictTVar
   , writeTVar
+
     -- * MonadLabelSTM
   , labelTVar
   , labelTVarIO
+
     -- * MonadTraceSTM
   , traceTVar
   , traceTVarIO
+
     -- * Invariant
   , checkInvariant
   ) where
 
-import Control.Concurrent.Class.MonadSTM (InspectMonad, MonadLabelledSTM,
-           MonadSTM, MonadTraceSTM, STM, TraceValue, atomically)
+import Control.Concurrent.Class.MonadSTM
+  ( InspectMonadSTM
+  , MonadLabelledSTM
+  , MonadSTM
+  , MonadTraceSTM
+  , STM
+  , TraceValue
+  , atomically
+  )
 import Control.Concurrent.Class.MonadSTM.Strict.TVar qualified as Strict
 import GHC.Stack (HasCallStack)
 
@@ -60,8 +70,9 @@ newtype StrictTVar m a = StrictTVar {
   }
 #endif
 
-castStrictTVar :: LazyTVar m ~ LazyTVar n
-               => StrictTVar m a -> StrictTVar n a
+castStrictTVar ::
+  LazyTVar m ~ LazyTVar n =>
+  StrictTVar m a -> StrictTVar n a
 castStrictTVar v = mkStrictTVar (getInvariant v) (Strict.castStrictTVar $ tvar v)
 
 -- | Get the underlying @TVar@
@@ -97,20 +108,22 @@ newTVar a = mkStrictTVar (const Nothing) <$> Strict.newTVar a
 newTVarIO :: MonadSTM m => a -> m (StrictTVar m a)
 newTVarIO = newTVarWithInvariantIO (const Nothing)
 
-newTVarWithInvariant :: (MonadSTM m, HasCallStack)
-                     => (a -> Maybe String)
-                     -> a
-                     -> STM m (StrictTVar m a)
+newTVarWithInvariant ::
+  (MonadSTM m, HasCallStack) =>
+  (a -> Maybe String) ->
+  a ->
+  STM m (StrictTVar m a)
 newTVarWithInvariant inv !a =
-    checkInvariant (inv a) $
+  checkInvariant (inv a) $
     mkStrictTVar inv <$> Strict.newTVar a
 
-newTVarWithInvariantIO :: (MonadSTM m, HasCallStack)
-                       => (a -> Maybe String)
-                       -> a
-                       -> m (StrictTVar m a)
+newTVarWithInvariantIO ::
+  (MonadSTM m, HasCallStack) =>
+  (a -> Maybe String) ->
+  a ->
+  m (StrictTVar m a)
 newTVarWithInvariantIO inv !a =
-    checkInvariant (inv a) $
+  checkInvariant (inv a) $
     mkStrictTVar inv <$> Strict.newTVarIO a
 
 readTVar :: MonadSTM m => StrictTVar m a -> STM m a
@@ -121,7 +134,7 @@ readTVarIO = Strict.readTVarIO . tvar
 
 writeTVar :: (MonadSTM m, HasCallStack) => StrictTVar m a -> a -> STM m ()
 writeTVar v !a =
-    checkInvariant (getInvariant v a) $
+  checkInvariant (getInvariant v a) $
     Strict.writeTVar (tvar v) a
 
 modifyTVar :: MonadSTM m => StrictTVar m a -> (a -> a) -> STM m ()
@@ -129,21 +142,20 @@ modifyTVar v f = readTVar v >>= writeTVar v . f
 
 stateTVar :: MonadSTM m => StrictTVar m s -> (s -> (a, s)) -> STM m a
 stateTVar v f = do
-    a <- readTVar v
-    let (b, a') = f a
-    writeTVar v a'
-    return b
+  a <- readTVar v
+  let (b, a') = f a
+  writeTVar v a'
+  return b
 
 swapTVar :: MonadSTM m => StrictTVar m a -> a -> STM m a
 swapTVar v a' = do
-    a <- readTVar v
-    writeTVar v a'
-    return a
+  a <- readTVar v
+  writeTVar v a'
+  return a
 
 --
 -- Dealing with invariants
 --
-
 
 -- | Check invariant (if enabled) before continuing
 --
@@ -182,15 +194,17 @@ labelTVarIO v = atomically . labelTVar v
   MonadTraceSTM
 -------------------------------------------------------------------------------}
 
-traceTVar :: MonadTraceSTM m
-          => proxy m
-          -> StrictTVar m a
-          -> (Maybe a -> a -> InspectMonad m TraceValue)
-          -> STM m ()
+traceTVar ::
+  MonadTraceSTM m =>
+  proxy m ->
+  StrictTVar m a ->
+  (Maybe a -> a -> InspectMonadSTM m TraceValue) ->
+  STM m ()
 traceTVar p = Strict.traceTVar p . tvar
 
-traceTVarIO :: MonadTraceSTM m
-            => StrictTVar m a
-            -> (Maybe a -> a -> InspectMonad m TraceValue)
-            -> m ()
+traceTVarIO ::
+  MonadTraceSTM m =>
+  StrictTVar m a ->
+  (Maybe a -> a -> InspectMonadSTM m TraceValue) ->
+  m ()
 traceTVarIO = Strict.traceTVarIO . tvar
