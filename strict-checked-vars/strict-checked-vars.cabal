@@ -24,12 +24,18 @@ extra-doc-files:
   README.md
 
 bug-reports: https://github.com/input-output-hk/cardano-base/issues
-tested-with: ghc ==8.10 || ==9.2 || ==9.6
+tested-with: ghc ==9.6 || ==9.8 || ==9.10 || == 9.12
 
 source-repository head
   type: git
   location: https://github.com/input-output-hk/cardano-base
   subdir: strict-checked-vars
+
+source-repository this
+  type: git
+  location: https://github.com/input-output-hk/cardano-base
+  subdir: strict-checked-vars
+  tag: strict-checked-vars-0.2.1.0
 
 flag checkmvarinvariants
   description: Enable runtime invariant checks on StrictMVars

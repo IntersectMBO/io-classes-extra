@@ -21,7 +21,7 @@ copyright:
 category: Control
 build-type: Simple
 bug-reports: https://github.com/IntersectMBO/io-classes-extra/issues
-tested-with: ghc ==8.10 || ==9.2 || ==9.4 || ==9.6 || ==9.8 || ==9.10
+tested-with: ghc ==9.6 || ==9.8 || ==9.10 || ==9.12
 extra-doc-files:
   CHANGELOG.md
   README.md
@@ -35,7 +35,7 @@ source-repository this
   type: git
   location: https://github.com/IntersectMBO/io-classes-extra
   subdir: resource-registry
-  tag: resource-registry-0.1.0.0
+  tag: resource-registry-0.1.1.0
 
 common warnings
   ghc-options:
@@ -54,11 +54,11 @@ library
   import: warnings
   exposed-modules: Control.ResourceRegistry
   build-depends:
-    base >=4.14 && <4.21,
+    base >=4.14 && <4.22,
     bimap ^>=0.5,
-    containers >=0.6 && <0.8,
+    containers >=0.6.7 && <0.8,
     io-classes:{io-classes, strict-stm} ^>=1.8,
-    mtl >=2.2 && <2.4,
+    mtl ^>=2.3,
     nothunks ^>=0.2,
 
   hs-source-dirs: src
