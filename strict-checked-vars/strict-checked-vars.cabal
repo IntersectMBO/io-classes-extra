@@ -23,17 +23,17 @@ extra-doc-files:
   CHANGELOG.md
   README.md
 
-bug-reports: https://github.com/input-output-hk/cardano-base/issues
+bug-reports: https://github.com/IntersectMBO/io-classes-extra/issues
 tested-with: ghc ==9.6 || ==9.8 || ==9.10 || ==9.12
 
 source-repository head
   type: git
-  location: https://github.com/input-output-hk/cardano-base
+  location: https://github.com/IntersectMBO/io-classes-extra
   subdir: strict-checked-vars
 
 source-repository this
   type: git
-  location: https://github.com/input-output-hk/cardano-base
+  location: https://github.com/IntersectMBO/io-classes-extra
   subdir: strict-checked-vars
   tag: strict-checked-vars-0.2.1.0
 
