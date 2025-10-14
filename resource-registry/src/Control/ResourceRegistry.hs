@@ -263,11 +263,13 @@ module Control.ResourceRegistry
   , modifyWithTempRegistry
   , runInnerWithTempRegistry
   , runWithTempRegistry
+  , ingestRegistry
 
     -- * Unsafe combinators primarily for testing
   , closeRegistry
   , countResources
   , unsafeNewRegistry
+  , resourceKeyId
   ) where
 
 import Control.Applicative ((<|>))
@@ -415,6 +417,8 @@ newtype ResourceId = ResourceId Int
 data Resource m = Resource
   { resourceContext :: !(Context m)
   -- ^ Context in which the resource was created
+  , resourceTransferredContext :: !(Maybe (Context m))
+  -- ^ Context in which the resource was transferred
   , resourceRelease :: !(Release m)
   -- ^ Deallocate the resource
   }
@@ -456,6 +460,12 @@ unlessClosed f = do
 -- | Allocate key for new resource
 allocKey :: State (RegistryState m) (Either PrettyCallStack ResourceId)
 allocKey = unlessClosed $ do
+  nextKey <- gets registryNextKey
+  modify $ \st -> st{registryNextKey = succ nextKey}
+  return nextKey
+
+allocNKeys :: Int -> State (RegistryState m) (Either PrettyCallStack [ResourceId])
+allocNKeys n = unlessClosed $ replicateM n $ do
   nextKey <- gets registryNextKey
   modify $ \st -> st{registryNextKey = succ nextKey}
   return nextKey
@@ -584,17 +594,17 @@ unsafeNewRegistry = do
       { registryContext = context
       , registryState = stateVar
       }
- where
-  initState :: RegistryState m
-  initState =
-    RegistryState
-      { registryThreads = KnownThreads Set.empty
-      , registryResources = Map.empty
-      , registryNextKey = ResourceId 1
-      , registryAges = Bimap.empty
-      , registryNextAge = ageOfFirstResource
-      , registryStatus = RegistryOpen
-      }
+
+initState :: RegistryState m
+initState =
+  RegistryState
+    { registryThreads = KnownThreads Set.empty
+    , registryResources = Map.empty
+    , registryNextKey = ResourceId 1
+    , registryAges = Bimap.empty
+    , registryNextAge = ageOfFirstResource
+    , registryStatus = RegistryOpen
+    }
 
 -- | Close the registry
 --
@@ -1080,6 +1090,7 @@ allocateEither rr alloc free = do
     Resource
       { resourceContext = context
       , resourceRelease = Release $ free a
+      , resourceTransferredContext = Nothing
       }
 
 throwRegistryClosed ::
@@ -1528,3 +1539,49 @@ instance
   NoThunks (Bimap k v)
   where
   wNoThunks ctxt = noThunksInKeysAndValues ctxt . Bimap.toList
+
+-- | Transferring individual resources between registries is risky because a
+-- later resource in the origin registry might depend on a resource that we are
+-- trying to transfer. However, transferring whole registries is fine.
+--
+-- This will move all the resources from the origin registry to the destination
+-- registry, and will close the origin registry.
+ingestRegistry ::
+  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+  ResourceRegistry m ->
+  ResourceRegistry m ->
+  m [ResourceKey m]
+ingestRegistry fromReg toReg = do
+  context <- captureContext
+
+  -- The calling thread is known to the origin registry
+  ensureKnownThread fromReg context
+
+  -- Alloc all the needed keys
+  mKeys <- updateState toReg . allocNKeys =<< countResources fromReg
+
+  case mKeys of
+    -- If the destination registry is closed, throw
+    Left closed -> throwRegistryClosed toReg context closed
+    Right keys -> mask_ $ do
+      -- Get the resources out of the origin registry and empty it
+      regState <- atomically $ swapTVar (registryState fromReg) initState
+
+      mapM_
+        ( \(k, res) -> do
+            -- Insert the resources into the new registry
+            inserted <- updateState toReg (insertResource k res{resourceTransferredContext = Just context})
+
+            case inserted of
+              -- If the destination registry is closed, throw
+              Left closed -> do
+                let Release rel = resourceRelease res
+                void rel
+                throwRegistryClosed toReg context closed
+              Right () ->
+                pure ()
+        )
+        $ zip keys
+        $ Map.elems (registryResources regState)
+
+      pure $ map (ResourceKey toReg) keys
