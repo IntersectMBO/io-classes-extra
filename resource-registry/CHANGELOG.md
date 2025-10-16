@@ -1,9 +1,14 @@
-# Revision history of strict-checked-vars
+# Revision history of `resource-registry`
 
 ## Next version
 
 * Define `transferRegistry` for moving all resources from one registry to a
   different one.
+
+* Cancel registered threads in the registry before closing the registry. This
+  prevents race conditions where the registry gets closed but the running async
+  thread still tries to allocate something in the registry before being
+  cancelled, which would result in an exception.
 
 ## 0.1.1.0 — 2025-05-15
 
