@@ -249,6 +249,7 @@ module Control.ResourceRegistry
   , Thread
   , cancelThread
   , forkLinkedThread
+  , forkLinkedThreadWithRegistry
   , forkThread
   , linkToRegistry
   , threadId
@@ -1242,17 +1243,23 @@ waitAnyThread :: forall m a. MonadAsync m => [Thread m a] -> m a
 waitAnyThread ts = snd <$> waitAny (map threadAsync ts)
 
 -- | Fork a new thread
+--
+-- The spawned thread will be given a registry which is the one to use instead
+-- of the one it was forked on. This prevents race conditions in which the still
+-- living thread tries to allocate resources on the already closed registry,
+-- during the closing of the registry.
 forkThread ::
   forall m a.
   (MonadMask m, MonadAsync m, HasCallStack) =>
   ResourceRegistry m ->
   -- | Label for the thread
   String ->
-  m a ->
+  (ResourceRegistry m -> m a) ->
   m (Thread m a)
-forkThread rr label body =
+forkThread rr label body = do
+  (_, reg) <- allocate rr (const unsafeNewRegistry) closeRegistry
   snd
-    <$> allocate rr (\key -> mkThread key <$> async (body' key)) cancelThread
+    <$> allocate rr (\key -> mkThread key <$> async (body' key reg)) cancelThread
  where
   mkThread :: ResourceId -> Async m a -> Thread m a
   mkThread rid child =
@@ -1263,18 +1270,19 @@ forkThread rr label body =
       , threadRegistry = rr
       }
 
-  body' :: ResourceId -> m a
-  body' rid = do
+  body' :: ResourceId -> ResourceRegistry m -> m a
+  body' rid reg = do
     me <- myThreadId
     labelThread me label
-    (registerThread me >> body) `finally` unregisterThread me rid
+    (mapM_ (registerThread me) [rr, reg] >> body reg)
+      `finally` mapM_ (unregisterThread me rid) [rr, reg]
 
   -- Register the thread
   --
   -- We must add the thread to the list of known threads before the thread
   -- will start to use the registry.
-  registerThread :: ThreadId m -> m ()
-  registerThread tid = updateState rr $ insertThread tid
+  registerThread :: ThreadId m -> ResourceRegistry m -> m ()
+  registerThread tid reg = updateState reg $ insertThread tid
 
   -- Unregister the thread
   --
@@ -1285,9 +1293,9 @@ forkThread rr label body =
   -- This runs with asynchronous exceptions masked (due to 'finally'),
   -- though for the current implementation of 'unregisterThread' this
   -- makes no difference.
-  unregisterThread :: ThreadId m -> ResourceId -> m ()
-  unregisterThread tid rid =
-    updateState rr $ do
+  unregisterThread :: ThreadId m -> ResourceId -> ResourceRegistry m -> m ()
+  unregisterThread tid rid reg =
+    updateState reg $ do
       removeThread tid
       void $ removeResource rid
 
@@ -1349,7 +1357,7 @@ withThread ::
   ResourceRegistry m ->
   -- | Label for the thread
   String ->
-  m a ->
+  (ResourceRegistry m -> m a) ->
   (Thread m a -> m b) ->
   m b
 withThread rr label body = bracket (forkThread rr label body) cancelThread
@@ -1368,7 +1376,19 @@ forkLinkedThread ::
   String ->
   m a ->
   m (Thread m a)
-forkLinkedThread rr label body = do
+forkLinkedThread rr label body = forkLinkedThreadWithRegistry rr label (const body)
+
+-- | Fork a thread and link to it to the registry.
+--
+-- This function is just a convenience.
+forkLinkedThreadWithRegistry ::
+  (MonadAsync m, MonadFork m, MonadMask m, HasCallStack) =>
+  ResourceRegistry m ->
+  -- | Label for the thread
+  String ->
+  (ResourceRegistry m -> m a) ->
+  m (Thread m a)
+forkLinkedThreadWithRegistry rr label body = do
   t <- forkThread rr label body
   -- There is no race condition here between the new thread throwing an
   -- exception and the 'linkToRegistry': if the thread /already/ threw the
