@@ -14,6 +14,8 @@
   is cancelled before closing the registry, even if it belongs to a separate
   registry.
 
+* Add the label of the thread to `Context`.
+
 ## 0.1.1.0 — 2025-05-15
 
 * Use `io-classes-1.8`.

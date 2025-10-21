@@ -1476,21 +1476,27 @@ data Context m = MonadThread m => Context
   -- ^ CallStack in which it was created
   , contextThreadId :: !(ThreadId m)
   -- ^ Thread that created the registry or resource
+  , contextThreadLabel :: !(Maybe String)
+  -- ^ The label of the thread that created the registry, if it is set
   }
 
 -- Existential type; we can't use generics
 instance NoThunks (Context m) where
   showTypeOf _ = "Context"
-  wNoThunks ctxt (Context cs tid) =
+  wNoThunks ctxt (Context cs tid lbl) =
     allNoThunks
       [ noThunks ctxt cs
       , noThunks ctxt (InspectHeapNamed @"ThreadId" tid)
+      , noThunks ctxt lbl
       ]
 
 deriving instance Show (Context m)
 
 captureContext :: MonadThread m => HasCallStack => m (Context m)
-captureContext = Context prettyCallStack <$> myThreadId
+captureContext = do
+  tid <- myThreadId
+  lbl <- threadLabel tid
+  pure $ Context prettyCallStack tid lbl
 
 {-------------------------------------------------------------------------------
   Misc utilities
