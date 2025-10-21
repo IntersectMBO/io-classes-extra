@@ -239,6 +239,7 @@ module Control.ResourceRegistry
     -- * Allocating and releasing regular resources
   , ResourceKey
   , allocate
+  , allocateThread
   , allocateEither
   , release
   , releaseAll
@@ -1264,6 +1265,9 @@ waitThread = wait . threadAsync
 waitAnyThread :: forall m a. MonadAsync m => [Thread m a] -> m a
 waitAnyThread ts = snd <$> waitAny (map threadAsync ts)
 
+-- | Allocate a thread in a registry. This will ensure that such a thread is
+-- cancelled before the registry is closed. Useful for threads that belong to a
+-- different registry but will try to allocate resources in this registry.
 allocateThread ::
   (MonadMask m, MonadAsync m, HasCallStack) =>
   ResourceRegistry m -> (ResourceId -> m (Thread m a)) -> m (ResourceKey m, Thread m a)
