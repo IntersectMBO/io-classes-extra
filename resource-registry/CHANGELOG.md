@@ -1,5 +1,10 @@
 # Revision history of strict-checked-vars
 
+## Next version
+
+* Define `transferRegistry` for moving all resources from one registry to a
+  different one.
+
 ## 0.1.1.0 — 2025-05-15
 
 * Use `io-classes-1.8`.
