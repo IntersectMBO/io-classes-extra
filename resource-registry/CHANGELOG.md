@@ -1,6 +1,6 @@
 # Revision history of `resource-registry`
 
-## Next version
+## 0.2.0.0 — 2025-10-23
 
 * Define `transferRegistry` for moving all resources from one registry to a
   different one.
