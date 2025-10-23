@@ -651,7 +651,17 @@ closeRegistry ::
   (MonadMask m, MonadThread m, MonadSTM m, HasCallStack) =>
   ResourceRegistry m ->
   m ()
-closeRegistry rr = mask_ $ do
+closeRegistry rr = mask_ $ releaseAllBy close rr
+
+-- | Release all the resources and perform another action while doing so. This
+-- is to be used both by 'closeRegistry' which will 'close' the registry, as
+-- well as 'releaseAll' which will not actually close the registry.
+releaseAllBy ::
+  (MonadMask m, MonadThread m, MonadSTM m, HasCallStack) =>
+  (PrettyCallStack -> State (RegistryState m) (Either PrettyCallStack [ResourceId])) ->
+  ResourceRegistry m ->
+  m ()
+releaseAllBy action rr = do
   context <- captureContext
   unless (contextThreadId context == contextThreadId (registryContext rr)) $
     throwIO $
@@ -659,12 +669,21 @@ closeRegistry rr = mask_ $ do
         { resourceRegistryCreatedIn = registryContext rr
         , resourceRegistryUsedIn = context
         }
+  unsafeReleaseAllBy action context rr
 
+-- | Unsafe version of 'releaseAllBy'.
+unsafeReleaseAllBy ::
+  (MonadMask m, MonadThread m, MonadSTM m, HasCallStack) =>
+  (PrettyCallStack -> State (RegistryState m) (Either PrettyCallStack [ResourceId])) ->
+  Context m ->
+  ResourceRegistry m ->
+  m ()
+unsafeReleaseAllBy action context rr = do
   ts <- updateState rr $ gets registryReleaseThreads
   mapM_ releaseThread ts
 
   -- Close the registry so that we cannot allocate any further resources
-  alreadyClosed <- updateState rr $ close (contextCallStack context)
+  alreadyClosed <- updateState rr $ action (contextCallStack context)
   case alreadyClosed of
     Left _ ->
       return ()
@@ -1187,15 +1206,7 @@ releaseAll ::
   (MonadMask m, MonadSTM m, MonadThread m, HasCallStack) =>
   ResourceRegistry m ->
   m ()
-releaseAll rr = do
-  context <- captureContext
-  unless (contextThreadId context == contextThreadId (registryContext rr)) $
-    throwIO $
-      ResourceRegistryClosedFromWrongThread
-        { resourceRegistryCreatedIn = registryContext rr
-        , resourceRegistryUsedIn = context
-        }
-  void $ releaseAllHelper rr context release
+releaseAll rr = releaseAllBy (\_ -> unlessClosed $ gets getYoungestToOldest) rr
 
 -- | This is to 'releaseAll' what 'unsafeRelease' is to 'release': we do not
 -- insist that this funciton is called from a thread that is known to the
@@ -1206,9 +1217,9 @@ unsafeReleaseAll ::
   m ()
 unsafeReleaseAll rr = do
   context <- captureContext
-  void $ releaseAllHelper rr context unsafeRelease
+  unsafeReleaseAllBy (\_ -> unlessClosed $ gets getYoungestToOldest) context rr
 
--- | Internal helper used by 'releaseAll' and 'unsafeReleaseAll'.
+-- | Internal helper used by 'runWithTempRegistry'.
 releaseAllHelper ::
   (MonadMask m, MonadSTM m, MonadThread m) =>
   ResourceRegistry m ->
