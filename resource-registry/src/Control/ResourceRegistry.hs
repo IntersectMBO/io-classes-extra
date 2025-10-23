@@ -239,6 +239,7 @@ module Control.ResourceRegistry
     -- * Allocating and releasing regular resources
   , ResourceKey
   , allocate
+  , allocateThread
   , allocateEither
   , release
   , releaseAll
@@ -344,6 +345,23 @@ nextYoungerAge (Age n) = Age (n - 1)
 data RegistryState m = RegistryState
   { registryThreads :: !(KnownThreads m)
   -- ^ Forked threads
+  , registryReleaseThreads :: ![ReleaseThread m]
+  -- ^ The list of releasing actions for threads that were forked from this
+  -- registry.
+  --
+  -- We will cancel these when closing a registry but before actually closing
+  -- the registry. This will guard the case in which a forked thread allocates
+  -- resources in the registry. We would face a race condition among:
+  --
+  -- - The registry killing the thread
+  --
+  -- - The thread allocating something in the now closed registry.
+  --
+  -- The latter case will throw an exception.
+  --
+  -- Note this is separate from 'registryThreads' because one can add threads to
+  -- cancel via 'allocateThread' and still those threads should not be directly
+  -- added to the set of known threads.
   , registryResources :: !(Map ResourceId (Resource m))
   -- ^ Currently allocated resources
   --
@@ -434,6 +452,10 @@ releaseResource Resource{resourceRelease = Release f} = f
 
 instance Show (Release m) where
   show _ = "<<release>>"
+
+-- | Release a thread when closing a registry.
+newtype ReleaseThread m = ReleaseThread {releaseThread :: m ()}
+  deriving NoThunks via OnlyCheckWhnfNamed "ReleaseThread" (ReleaseThread m)
 
 {-------------------------------------------------------------------------------
   Internal: pure functions on the registry state
@@ -598,6 +620,7 @@ initState :: RegistryState m
 initState =
   RegistryState
     { registryThreads = KnownThreads Set.empty
+    , registryReleaseThreads = []
     , registryResources = Map.empty
     , registryNextKey = ResourceId 1
     , registryAges = Bimap.empty
@@ -628,7 +651,17 @@ closeRegistry ::
   (MonadMask m, MonadThread m, MonadSTM m, HasCallStack) =>
   ResourceRegistry m ->
   m ()
-closeRegistry rr = mask_ $ do
+closeRegistry rr = mask_ $ releaseAllBy close rr
+
+-- | Release all the resources and perform another action while doing so. This
+-- is to be used both by 'closeRegistry' which will 'close' the registry, as
+-- well as 'releaseAll' which will not actually close the registry.
+releaseAllBy ::
+  (MonadMask m, MonadThread m, MonadSTM m, HasCallStack) =>
+  (PrettyCallStack -> State (RegistryState m) (Either PrettyCallStack [ResourceId])) ->
+  ResourceRegistry m ->
+  m ()
+releaseAllBy action rr = do
   context <- captureContext
   unless (contextThreadId context == contextThreadId (registryContext rr)) $
     throwIO $
@@ -636,9 +669,21 @@ closeRegistry rr = mask_ $ do
         { resourceRegistryCreatedIn = registryContext rr
         , resourceRegistryUsedIn = context
         }
+  unsafeReleaseAllBy action context rr
+
+-- | Unsafe version of 'releaseAllBy'.
+unsafeReleaseAllBy ::
+  (MonadMask m, MonadThread m, MonadSTM m, HasCallStack) =>
+  (PrettyCallStack -> State (RegistryState m) (Either PrettyCallStack [ResourceId])) ->
+  Context m ->
+  ResourceRegistry m ->
+  m ()
+unsafeReleaseAllBy action context rr = do
+  ts <- updateState rr $ gets registryReleaseThreads
+  mapM_ releaseThread ts
 
   -- Close the registry so that we cannot allocate any further resources
-  alreadyClosed <- updateState rr $ close (contextCallStack context)
+  alreadyClosed <- updateState rr $ action (contextCallStack context)
   case alreadyClosed of
     Left _ ->
       return ()
@@ -1161,15 +1206,7 @@ releaseAll ::
   (MonadMask m, MonadSTM m, MonadThread m, HasCallStack) =>
   ResourceRegistry m ->
   m ()
-releaseAll rr = do
-  context <- captureContext
-  unless (contextThreadId context == contextThreadId (registryContext rr)) $
-    throwIO $
-      ResourceRegistryClosedFromWrongThread
-        { resourceRegistryCreatedIn = registryContext rr
-        , resourceRegistryUsedIn = context
-        }
-  void $ releaseAllHelper rr context release
+releaseAll rr = releaseAllBy (\_ -> unlessClosed $ gets getYoungestToOldest) rr
 
 -- | This is to 'releaseAll' what 'unsafeRelease' is to 'release': we do not
 -- insist that this funciton is called from a thread that is known to the
@@ -1180,9 +1217,9 @@ unsafeReleaseAll ::
   m ()
 unsafeReleaseAll rr = do
   context <- captureContext
-  void $ releaseAllHelper rr context unsafeRelease
+  unsafeReleaseAllBy (\_ -> unlessClosed $ gets getYoungestToOldest) context rr
 
--- | Internal helper used by 'releaseAll' and 'unsafeReleaseAll'.
+-- | Internal helper used by 'runWithTempRegistry'.
 releaseAllHelper ::
   (MonadMask m, MonadSTM m, MonadThread m) =>
   ResourceRegistry m ->
@@ -1239,6 +1276,19 @@ waitThread = wait . threadAsync
 waitAnyThread :: forall m a. MonadAsync m => [Thread m a] -> m a
 waitAnyThread ts = snd <$> waitAny (map threadAsync ts)
 
+-- | Allocate a thread in a registry. This will ensure that such a thread is
+-- cancelled before the registry is closed. Useful for threads that belong to a
+-- different registry but will try to allocate resources in this registry.
+allocateThread ::
+  (MonadMask m, MonadAsync m, HasCallStack) =>
+  ResourceRegistry m -> (ResourceId -> m (Thread m a)) -> m (ResourceKey m, Thread m a)
+allocateThread rr alloc = do
+  (k, t) <- allocate rr alloc cancelThread
+  updateState rr $
+    modify
+      (\s -> s{registryReleaseThreads = ReleaseThread (void (release k)) : registryReleaseThreads s})
+  pure (k, t)
+
 -- | Fork a new thread
 forkThread ::
   forall m a.
@@ -1250,7 +1300,7 @@ forkThread ::
   m (Thread m a)
 forkThread rr label body =
   snd
-    <$> allocate rr (\key -> mkThread key <$> async (body' key)) cancelThread
+    <$> allocateThread rr (\key -> mkThread key <$> async (body' key))
  where
   mkThread :: ResourceId -> Async m a -> Thread m a
   mkThread rid child =
@@ -1437,21 +1487,27 @@ data Context m = MonadThread m => Context
   -- ^ CallStack in which it was created
   , contextThreadId :: !(ThreadId m)
   -- ^ Thread that created the registry or resource
+  , contextThreadLabel :: !(Maybe String)
+  -- ^ The label of the thread that created the registry, if it is set
   }
 
 -- Existential type; we can't use generics
 instance NoThunks (Context m) where
   showTypeOf _ = "Context"
-  wNoThunks ctxt (Context cs tid) =
+  wNoThunks ctxt (Context cs tid lbl) =
     allNoThunks
       [ noThunks ctxt cs
       , noThunks ctxt (InspectHeapNamed @"ThreadId" tid)
+      , noThunks ctxt lbl
       ]
 
 deriving instance Show (Context m)
 
 captureContext :: MonadThread m => HasCallStack => m (Context m)
-captureContext = Context prettyCallStack <$> myThreadId
+captureContext = do
+  tid <- myThreadId
+  lbl <- threadLabel tid
+  pure $ Context prettyCallStack tid lbl
 
 {-------------------------------------------------------------------------------
   Misc utilities
