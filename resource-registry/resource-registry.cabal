@@ -26,6 +26,11 @@ extra-doc-files:
   CHANGELOG.md
   README.md
 
+flag debug-labels
+  default: False
+  manual: True
+  description: Enables allocating with labels and tracing alloc/dealloc/transfer
+
 source-repository head
   type: git
   location: https://github.com/IntersectMBO/io-classes-extra
@@ -64,6 +69,11 @@ library
   hs-source-dirs: src
   default-language: Haskell2010
   default-extensions: ImportQualifiedPost
+  if flag(debug-labels)
+    cpp-options: -DDEBUG_LABELS
+    build-depends:
+      text,
+      deepseq,
 
 test-suite resource-registry-test
   import: warnings

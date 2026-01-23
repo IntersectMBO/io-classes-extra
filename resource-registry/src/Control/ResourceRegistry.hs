@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -271,6 +272,11 @@ module Control.ResourceRegistry
   , countResources
   , unsafeNewRegistry
   , resourceKeyId
+#ifdef DEBUG_LABELS
+  , withLabelledRegistry
+  , unsafeNewLabelledRegistry
+  , allocateLabelled
+#endif
   ) where
 
 import Control.Applicative ((<|>))
@@ -297,6 +303,12 @@ import GHC.Generics (Generic)
 import GHC.Stack (CallStack, HasCallStack)
 import GHC.Stack qualified as GHC
 import NoThunks.Class hiding (Context)
+#ifdef DEBUG_LABELS
+import Data.Text (Text)
+import Control.DeepSeq (deepseq)
+import qualified Debug.Trace as Debug
+import qualified Data.Text as T
+#endif
 
 -- | Tracks resources during their lifetime.
 data ResourceRegistry m = ResourceRegistry
@@ -304,6 +316,9 @@ data ResourceRegistry m = ResourceRegistry
   -- ^ Context in which the registry was created
   , registryState :: !(StrictTVar m (RegistryState m))
   -- ^ Registry state
+#ifdef DEBUG_LABELS
+  , registryLabel :: !(Maybe Text)
+#endif
   }
   deriving Generic
 
@@ -437,6 +452,9 @@ data Resource m = Resource
   -- ^ Context in which the resource was created
   , resourceRelease :: !(Release m)
   -- ^ Deallocate the resource
+#ifdef DEBUG_LABELS
+  , resourceLabel :: !(Maybe Text)
+#endif
   }
   deriving (Generic, NoThunks)
 
@@ -614,7 +632,25 @@ unsafeNewRegistry = do
     ResourceRegistry
       { registryContext = context
       , registryState = stateVar
+#ifdef DEBUG_LABELS
+      , registryLabel = Nothing
+#endif
       }
+
+#ifdef DEBUG_LABELS
+unsafeNewLabelledRegistry ::
+  (MonadSTM m, MonadThread m, HasCallStack) =>
+  Text -> m (ResourceRegistry m)
+unsafeNewLabelledRegistry lbl = do
+  context <- captureContext
+  stateVar <- newTVarIO initState
+  return
+    ResourceRegistry
+      { registryContext = context
+      , registryState = stateVar
+      , registryLabel = lbl `deepseq` Just lbl
+      }
+#endif
 
 initState :: RegistryState m
 initState =
@@ -662,6 +698,9 @@ releaseAllBy ::
   ResourceRegistry m ->
   m ()
 releaseAllBy action rr = do
+#ifdef DEBUG_LABELS
+  Debug.traceM $ "Closing registry " <> maybe "unnamed" T.unpack (registryLabel rr)
+#endif
   context <- captureContext
   unless (contextThreadId context == contextThreadId (registryContext rr)) $
     throwIO $
@@ -737,6 +776,15 @@ withRegistry ::
   (ResourceRegistry m -> m a) ->
   m a
 withRegistry = bracket unsafeNewRegistry closeRegistry
+
+#ifdef DEBUG_LABELS
+withLabelledRegistry ::
+  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+  Text ->
+  (ResourceRegistry m -> m a) ->
+  m a
+withLabelledRegistry lbl = bracket (unsafeNewLabelledRegistry lbl) closeRegistry
+#endif
 
 -- | Create a new private registry for use by a bracketed resource
 --
@@ -1015,7 +1063,11 @@ allocateTemp alloc free isTransferred = WithTempRegistry $ do
   (key, a) <-
     lift
       ( mustBeRight
-          <$> allocateEither rr (fmap Right . const alloc) free
+          <$> allocateEither
+#ifdef DEBUG_LABELS
+                Nothing
+#endif
+                rr (fmap Right . const alloc) free
       )
   lift $
     atomically $
@@ -1087,19 +1139,45 @@ allocate ::
   m (ResourceKey m, a)
 allocate rr alloc free =
   mustBeRight
-    <$> allocateEither rr (fmap Right . alloc) (\a -> free a >> return True)
+    <$> allocateEither
+#ifdef DEBUG_LABELS
+          Nothing
+#endif
+          rr (fmap Right . alloc) (\a -> free a >> return True)
+
+#ifdef DEBUG_LABELS
+allocateLabelled ::
+  forall m a.
+  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+  Text ->
+  ResourceRegistry m ->
+  (ResourceId -> m a) ->
+  -- | Release the resource
+  (a -> m ()) ->
+  m (ResourceKey m, a)
+allocateLabelled lbl rr alloc free =
+  mustBeRight
+    <$> allocateEither (Just lbl) rr (fmap Right . alloc) (\a -> free a >> return True)
+#endif
 
 -- | Generalization of 'allocate' for allocation functions that may fail
 allocateEither ::
   forall m e a.
   (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+#ifdef DEBUG_LABELS
+  Maybe Text ->
+#endif
   ResourceRegistry m ->
   (ResourceId -> m (Either e a)) ->
   -- | Release the resource, return 'True' when the resource
   -- hasn't been released or closed before.
   (a -> m Bool) ->
   m (Either e (ResourceKey m, a))
+#ifdef DEBUG_LABELS
+allocateEither lbl rr alloc free = do
+#else
 allocateEither rr alloc free = do
+#endif
   context <- captureContext
   ensureKnownThread rr context
   -- We check if the registry has been closed when we allocate the key, so
@@ -1109,6 +1187,9 @@ allocateEither rr alloc free = do
     Left closed ->
       throwRegistryClosed rr context closed
     Right key -> mask_ $ do
+#ifdef DEBUG_LABELS
+      maybe (pure ()) (Debug.traceM . (\t -> "Allocating in registry " <> maybe "unnamed" T.unpack (registryLabel rr) <> " resource \"" <> t <> "\" with ID " <> show key ) . T.unpack) lbl
+#endif
       ma <- alloc key
       case ma of
         Left e -> return $ Left e
@@ -1117,7 +1198,7 @@ allocateEither rr alloc free = do
           -- 'updateState' just in case /that/ throws an exception.
           inserted <-
             updateState rr $
-              insertResource key (mkResource context a)
+              insertResource key (mkResource context key a)
           case inserted of
             Left closed -> do
               -- Despite the earlier check, it's possible that the registry
@@ -1129,11 +1210,18 @@ allocateEither rr alloc free = do
             Right () ->
               return $ Right (ResourceKey rr key, a)
  where
-  mkResource :: Context m -> a -> Resource m
-  mkResource context a =
+  mkResource :: Context m -> ResourceId -> a -> Resource m
+  mkResource context _key a =
     Resource
       { resourceContext = context
-      , resourceRelease = Release $ free a
+      , resourceRelease = Release $ do
+#ifdef DEBUG_LABELS
+          maybe (pure ()) (Debug.traceM . (\t -> "Deallocating in registry " <> maybe "unnamed"  T.unpack (registryLabel rr) <> " resource \"" <> t <> "\" with ID " <> show _key) . T.unpack) lbl
+#endif
+          free a
+#ifdef DEBUG_LABELS
+      , resourceLabel = lbl `deepseq` lbl
+#endif
       }
 
 throwRegistryClosed ::
@@ -1638,5 +1726,7 @@ transferRegistry fromReg toReg = do
               Right () ->
                 pure ()
         )
-
+#ifdef DEBUG_LABELS
+      Debug.traceM ("Transfer resources with IDs " <> show (Map.keys (registryResources regState)) <> " from registry " <> maybe "unnamed" T.unpack (registryLabel fromReg) <> " to registry " <> maybe "unnamed" T.unpack (registryLabel toReg))
+#endif
       pure $ map (ResourceKey toReg) keys
