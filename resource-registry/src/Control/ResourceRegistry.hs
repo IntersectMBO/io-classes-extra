@@ -435,6 +435,9 @@ deriving instance
   NoThunks (ResourceRegistry m) =>
   NoThunks (ResourceKey m)
 
+instance Show (ResourceKey m) where
+  show (ResourceKey _ rid) = show rid
+
 -- | Return the 'ResourceId' of a 'ResourceKey'.
 resourceKeyId :: ResourceKey m -> ResourceId
 resourceKeyId (ResourceKey _rr rid) = rid
@@ -830,7 +833,7 @@ bracketWithPrivateRegistry ::
   m r
 bracketWithPrivateRegistry newA closeA body =
   withRegistry $ \registry -> do
-    (_key, a) <- allocate registry (\_key -> newA registry) closeA
+    (_key, a) <- allocate registry (\_key -> newA registry) (\_key -> closeA)
     body a
 
 {-------------------------------------------------------------------------------
@@ -1067,7 +1070,7 @@ allocateTemp alloc free isTransferred = WithTempRegistry $ do
 #ifdef DEBUG_LABELS
                 Nothing
 #endif
-                rr (fmap Right . const alloc) free
+                rr (fmap Right . const alloc) (\_key -> free)
       )
   lift $
     atomically $
@@ -1135,7 +1138,7 @@ allocate ::
   ResourceRegistry m ->
   (ResourceId -> m a) ->
   -- | Release the resource
-  (a -> m ()) ->
+  (ResourceId -> a -> m ()) ->
   m (ResourceKey m, a)
 allocate rr alloc free =
   mustBeRight
@@ -1143,7 +1146,7 @@ allocate rr alloc free =
 #ifdef DEBUG_LABELS
           Nothing
 #endif
-          rr (fmap Right . alloc) (\a -> free a >> return True)
+          rr (fmap Right . alloc) (\k a -> free k a >> return True)
 
 #ifdef DEBUG_LABELS
 allocateLabelled ::
@@ -1153,7 +1156,7 @@ allocateLabelled ::
   ResourceRegistry m ->
   (ResourceId -> m a) ->
   -- | Release the resource
-  (a -> m ()) ->
+  (ResourceId -> a -> m ()) ->
   m (ResourceKey m, a)
 allocateLabelled lbl rr alloc free =
   mustBeRight
@@ -1171,7 +1174,7 @@ allocateEither ::
   (ResourceId -> m (Either e a)) ->
   -- | Release the resource, return 'True' when the resource
   -- hasn't been released or closed before.
-  (a -> m Bool) ->
+  (ResourceId -> a -> m Bool) ->
   m (Either e (ResourceKey m, a))
 #ifdef DEBUG_LABELS
 allocateEither lbl rr alloc free = do
@@ -1205,20 +1208,20 @@ allocateEither rr alloc free = do
               -- got closed after we allocated a new key but before we got a
               -- chance to register the resource. In this case, we must
               -- deallocate the resource again before throwing the exception.
-              void $ free a
+              void $ free key a
               throwRegistryClosed rr context closed
             Right () ->
               return $ Right (ResourceKey rr key, a)
  where
   mkResource :: Context m -> ResourceId -> a -> Resource m
-  mkResource context _key a =
+  mkResource context key a =
     Resource
       { resourceContext = context
       , resourceRelease = Release $ do
 #ifdef DEBUG_LABELS
-          maybe (pure ()) (Debug.traceM . (\t -> "Deallocating in registry " <> maybe "unnamed"  T.unpack (registryLabel rr) <> " resource \"" <> t <> "\" with ID " <> show _key) . T.unpack) lbl
+          maybe (pure ()) (Debug.traceM . (\t -> "Deallocating in registry " <> maybe "unnamed"  T.unpack (registryLabel rr) <> " resource \"" <> t <> "\" with ID " <> show key) . T.unpack) lbl
 #endif
-          free a
+          free key a
 #ifdef DEBUG_LABELS
       , resourceLabel = lbl `deepseq` lbl
 #endif
@@ -1371,7 +1374,7 @@ allocateThread ::
   (MonadMask m, MonadAsync m, HasCallStack) =>
   ResourceRegistry m -> (ResourceId -> m (Thread m a)) -> m (ResourceKey m, Thread m a)
 allocateThread rr alloc = do
-  (k, t) <- allocate rr alloc cancelThread
+  (k, t) <- allocate rr alloc (\_key -> cancelThread)
   updateState rr $
     modify
       (\s -> s{registryReleaseThreads = ReleaseThread (void (release k)) : registryReleaseThreads s})
