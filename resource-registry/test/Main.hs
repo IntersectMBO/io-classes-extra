@@ -6,6 +6,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -38,6 +39,7 @@ import Control.Monad.Except
 import Control.Monad.IO.Class
 #endif
 import Control.ResourceRegistry
+import Control.Tracer (nullTracer)
 import Data.Foldable
 import Data.Function
 import Data.Functor.Classes
@@ -325,7 +327,7 @@ newThread alive parentReg = \shouldLink -> do
   spawned <- newEmptyMVar
 
   thread <- forkThread parentReg "newThread" $
-    withRegistry $ \childReg ->
+    withRegistry nullTracer "" $ \childReg ->
       threadBody childReg spawned comms
   case shouldLink of
     LinkFromParent _ -> linkToRegistry thread
@@ -619,7 +621,7 @@ prop_sequential = forAllCommands (sm unused unused) Nothing prop_sequential'
 prop_sequential' :: QSM.Commands (At IO Cmd) (At IO Resp) -> Property
 prop_sequential' cmds = monadicIO $ do
   alive <- liftIO $ newTVarIO []
-  reg <- liftIO $ unsafeNewRegistry
+  reg <- liftIO $ unsafeNewRegistry nullTracer ""
   let sm' = sm alive reg
   (hist, _model, res) <- runCommands sm' cmds
   prettyCommands sm' hist $
