@@ -1,6 +1,6 @@
 # Revision history of `resource-registry`
 
-## Next version
+## 0.2.1.0 — 2026-02-05
 
 * Define new functions that implement tracing via `contra-tracer` package:
   `bracketWithPrivateTracingRegistry`, `withTracingRegistry`,
