@@ -83,7 +83,6 @@ test-suite resource-registry-test
     QuickCheck,
     base,
     containers,
-    contra-tracer,
     generics-sop,
     io-classes:{io-classes, si-timers, strict-mvar, strict-stm},
     mtl,

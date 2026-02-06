@@ -39,7 +39,6 @@ import Control.Monad.Except
 import Control.Monad.IO.Class
 #endif
 import Control.ResourceRegistry
-import Control.Tracer (nullTracer)
 import Data.Foldable
 import Data.Function
 import Data.Functor.Classes
@@ -327,7 +326,7 @@ newThread alive parentReg = \shouldLink -> do
   spawned <- newEmptyMVar
 
   thread <- forkThread parentReg "newThread" $
-    withRegistry nullTracer "" $ \childReg ->
+    withRegistry $ \childReg ->
       threadBody childReg spawned comms
   case shouldLink of
     LinkFromParent _ -> linkToRegistry thread
@@ -621,7 +620,7 @@ prop_sequential = forAllCommands (sm unused unused) Nothing prop_sequential'
 prop_sequential' :: QSM.Commands (At IO Cmd) (At IO Resp) -> Property
 prop_sequential' cmds = monadicIO $ do
   alive <- liftIO $ newTVarIO []
-  reg <- liftIO $ unsafeNewRegistry nullTracer ""
+  reg <- liftIO $ unsafeNewRegistry
   let sm' = sm alive reg
   (hist, _model, res) <- runCommands sm' cmds
   prettyCommands sm' hist $
