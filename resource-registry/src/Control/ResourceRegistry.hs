@@ -7,6 +7,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -233,14 +234,19 @@ module Control.ResourceRegistry
 
     -- * Creating and releasing the registry itself
   , bracketWithPrivateRegistry
+  , bracketWithPrivateTracingRegistry
   , registryThread
   , withRegistry
+  , withTracingRegistry
 
     -- * Allocating and releasing regular resources
   , ResourceKey
   , allocate
+  , allocateLabelled
   , allocateThread
+  , allocateLabelledThread
   , allocateEither
+  , allocateEitherLabelled
   , release
   , releaseAll
   , unsafeRelease
@@ -261,15 +267,25 @@ module Control.ResourceRegistry
   , TempRegistryException (..)
   , WithTempRegistry
   , allocateTemp
+  , allocateLabelledTemp
   , modifyWithTempRegistry
+  , modifyWithTempTracingRegistry
   , runInnerWithTempRegistry
+  , runInnerWithTempTracingRegistry
   , runWithTempRegistry
+  , runWithTempTracingRegistry
   , transferRegistry
+
+    -- * Traces
+  , TraceResourceRegistry
+  , RegistryLabel
+  , ResourceLabel
 
     -- * Unsafe combinators primarily for testing
   , closeRegistry
   , countResources
   , unsafeNewRegistry
+  , unsafeNewRegistryWithTracer
   , resourceKeyId
   ) where
 
@@ -282,6 +298,7 @@ import Control.Monad.Class.MonadFork
 import Control.Monad.Class.MonadThrow
 import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Control.Tracer (Tracer, nullTracer, traceWith)
 import Data.Bifunctor
 import Data.Bimap (Bimap)
 import Data.Bimap qualified as Bimap
@@ -291,6 +308,9 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Data.String (IsString)
+import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Void
 import Data.Word (Word64)
 import GHC.Generics (Generic)
@@ -298,14 +318,29 @@ import GHC.Stack (CallStack, HasCallStack)
 import GHC.Stack qualified as GHC
 import NoThunks.Class hiding (Context)
 
+newtype RegistryLabel = RegistryLabel Text
+  deriving newtype (Show, NoThunks, IsString)
+
+newtype ResourceLabel = ResourceLabel Text
+  deriving newtype (Show, NoThunks, IsString)
+
 -- | Tracks resources during their lifetime.
 data ResourceRegistry m = ResourceRegistry
   { registryContext :: !(Context m)
   -- ^ Context in which the registry was created
   , registryState :: !(StrictTVar m (RegistryState m))
   -- ^ Registry state
+  , registryTracer :: !(Tracer m (TraceResourceRegistry m))
+  -- ^ The tracer to show operations in the registry and resources
+  , registryLabel :: !RegistryLabel
+  -- ^ The label for this registry, to emit it in traces
   }
   deriving Generic
+
+deriving via
+  OnlyCheckWhnfNamed "Tracer" (Tracer m ev)
+  instance
+    NoThunks (Tracer m ev)
 
 deriving instance
   (forall a. NoThunks a => NoThunks (StrictTVar m a)) =>
@@ -437,6 +472,8 @@ data Resource m = Resource
   -- ^ Context in which the resource was created
   , resourceRelease :: !(Release m)
   -- ^ Deallocate the resource
+  , resourceLabel :: !ResourceLabel
+  -- ^ The label of this resource, to emit in traces
   }
   deriving (Generic, NoThunks)
 
@@ -444,11 +481,18 @@ data Resource m = Resource
 -- released, return 'False' when the resource was already released.
 --
 -- If unsure, returning 'True' is always fine.
-newtype Release m = Release (m Bool)
+data Release m = Release
+  { runRelease :: m Bool
+  , releaseTracingInfo :: (Tracer m (TraceResourceRegistry m), ResourceId, RegistryLabel)
+  }
   deriving NoThunks via OnlyCheckWhnfNamed "Release" (Release m)
 
-releaseResource :: Resource m -> m Bool
-releaseResource Resource{resourceRelease = Release f} = f
+releaseResource :: Monad m => Resource m -> m Bool
+releaseResource Resource{resourceRelease = rr, resourceLabel = rlbl} = do
+  traceWith trcr (TraceResourceReleased (TrResourceReleased lbl rlbl rid))
+  f
+ where
+  Release{runRelease = f, releaseTracingInfo = (trcr, rid, lbl)} = rr
 
 instance Show (Release m) where
   show _ = "<<release>>"
@@ -479,7 +523,7 @@ unlessClosed f = do
 
 -- | Allocate key for new resource
 allocKey :: State (RegistryState m) (Either PrettyCallStack ResourceId)
-allocKey = unlessClosed $ unsafeAllocKey
+allocKey = unlessClosed unsafeAllocKey
 
 unsafeAllocKey :: State (RegistryState m) ResourceId
 unsafeAllocKey = do
@@ -489,7 +533,7 @@ unsafeAllocKey = do
 
 -- | Allocate multiple keys for resources
 allocNKeys :: Int -> State (RegistryState m) (Either PrettyCallStack [ResourceId])
-allocNKeys n = unlessClosed $ replicateM n $ unsafeAllocKey
+allocNKeys n = unlessClosed $ replicateM n unsafeAllocKey
 
 -- | Insert new resource
 insertResource ::
@@ -607,13 +651,23 @@ instance Exception RegistryClosedException
 unsafeNewRegistry ::
   (MonadSTM m, MonadThread m, HasCallStack) =>
   m (ResourceRegistry m)
-unsafeNewRegistry = do
+unsafeNewRegistry = unsafeNewRegistryWithTracer nullTracer ""
+
+unsafeNewRegistryWithTracer ::
+  (MonadSTM m, MonadThread m, HasCallStack) =>
+  Tracer m (TraceResourceRegistry m) -> RegistryLabel -> m (ResourceRegistry m)
+unsafeNewRegistryWithTracer trcr label = do
   context <- captureContext
   stateVar <- newTVarIO initState
+  traceWith
+    trcr
+    (TraceRegistryCreated (TrRegistryCreated label (contextThreadId context, contextThreadLabel context)))
   return
     ResourceRegistry
       { registryContext = context
       , registryState = stateVar
+      , registryTracer = trcr
+      , registryLabel = label
       }
 
 initState :: RegistryState m
@@ -651,7 +705,9 @@ closeRegistry ::
   (MonadMask m, MonadThread m, MonadSTM m, HasCallStack) =>
   ResourceRegistry m ->
   m ()
-closeRegistry rr = mask_ $ releaseAllBy close rr
+closeRegistry rr = do
+  traceWith (registryTracer rr) (TraceRegistryClosed (TrRegistryClosed (registryLabel rr)))
+  mask_ $ releaseAllBy close rr
 
 -- | Release all the resources and perform another action while doing so. This
 -- is to be used both by 'closeRegistry' which will 'close' the registry, as
@@ -738,6 +794,14 @@ withRegistry ::
   m a
 withRegistry = bracket unsafeNewRegistry closeRegistry
 
+withTracingRegistry ::
+  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+  Tracer m (TraceResourceRegistry m) ->
+  RegistryLabel ->
+  (ResourceRegistry m -> m a) ->
+  m a
+withTracingRegistry trcr lbl = bracket (unsafeNewRegistryWithTracer trcr lbl) closeRegistry
+
 -- | Create a new private registry for use by a bracketed resource
 --
 -- Use this combinator as a more specific and easier-to-maintain alternative to
@@ -783,6 +847,21 @@ bracketWithPrivateRegistry ::
 bracketWithPrivateRegistry newA closeA body =
   withRegistry $ \registry -> do
     (_key, a) <- allocate registry (\_key -> newA registry) closeA
+    body a
+
+bracketWithPrivateTracingRegistry ::
+  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+  Tracer m (TraceResourceRegistry m) ->
+  RegistryLabel ->
+  ResourceLabel ->
+  (ResourceRegistry m -> m a) ->
+  -- | Release the resource
+  (a -> m ()) ->
+  (a -> m r) ->
+  m r
+bracketWithPrivateTracingRegistry trcr lbl rlbl newA closeA body =
+  withTracingRegistry trcr lbl $ \registry -> do
+    (_key, a) <- allocateLabelled registry rlbl (\_key -> newA registry) closeA
     body a
 
 {-------------------------------------------------------------------------------
@@ -832,7 +911,15 @@ runWithTempRegistry ::
   (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
   WithTempRegistry st m (a, st) ->
   m a
-runWithTempRegistry m = withRegistry $ \rr -> do
+runWithTempRegistry = runWithTempTracingRegistry nullTracer ""
+
+runWithTempTracingRegistry ::
+  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+  Tracer m (TraceResourceRegistry m) ->
+  RegistryLabel ->
+  WithTempRegistry st m (a, st) ->
+  m a
+runWithTempTracingRegistry tr lbl m = withTracingRegistry tr lbl $ \rr -> do
   varTransferredTo <- newTVarIO mempty
   let tempRegistry =
         TempRegistry
@@ -895,16 +982,30 @@ runInnerWithTempRegistry ::
   -- | How to check; same as for 'allocateTemp'
   (st -> res -> Bool) ->
   WithTempRegistry st m a
-runInnerWithTempRegistry inner free isTransferred = do
+runInnerWithTempRegistry = runInnerWithTempTracingRegistry nullTracer ""
+
+runInnerWithTempTracingRegistry ::
+  forall innerSt st m res a.
+  (MonadSTM m, MonadMask m, MonadThread m) =>
+  Tracer m (TraceResourceRegistry m) ->
+  RegistryLabel ->
+  -- | The embedded computation; see ASSUMPTION above
+  WithTempRegistry innerSt m (a, innerSt, res) ->
+  -- | How to free; same as for 'allocateTemp'
+  (res -> m Bool) ->
+  -- | How to check; same as for 'allocateTemp'
+  (st -> res -> Bool) ->
+  WithTempRegistry st m a
+runInnerWithTempTracingRegistry trcr lbl inner free isTransferred = do
   outerTR <- WithTempRegistry ask
 
-  lift $ runWithTempRegistry $ do
+  lift $ runWithTempTracingRegistry trcr lbl $ do
     (a, innerSt, res) <- inner
 
     -- Allocate in the outer layer.
     _ <-
       withFixedTempRegistry outerTR $
-        allocateTemp (return res) free isTransferred
+        allocateLabelledTemp "temp" (return res) free isTransferred
 
     -- TODO This point here is where an async exception could cause both the
     -- inner resources to be closed and the outer resource to be closed later.
@@ -1010,12 +1111,27 @@ allocateTemp ::
   -- | Check whether the resource is in the given state
   (st -> a -> Bool) ->
   WithTempRegistry st m a
-allocateTemp alloc free isTransferred = WithTempRegistry $ do
+allocateTemp = allocateLabelledTemp "unlabeled"
+
+allocateLabelledTemp ::
+  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+  ResourceLabel ->
+  -- | Allocate the resource
+  m a ->
+  -- | Release the resource, return 'True' when the resource was actually
+  -- released, return 'False' when the resource was already released.
+  --
+  -- Note that it is safe to always return 'True' when unsure.
+  (a -> m Bool) ->
+  -- | Check whether the resource is in the given state
+  (st -> a -> Bool) ->
+  WithTempRegistry st m a
+allocateLabelledTemp lbl alloc free isTransferred = WithTempRegistry $ do
   TempRegistry rr varTransferredTo <- ask
   (key, a) <-
     lift
       ( mustBeRight
-          <$> allocateEither rr (fmap Right . const alloc) free
+          <$> allocateEitherLabelled rr lbl (fmap Right . const alloc) free
       )
   lift $
     atomically $
@@ -1040,8 +1156,22 @@ modifyWithTempRegistry ::
   -- | Modify the state
   StateT st (WithTempRegistry st m) a ->
   m a
-modifyWithTempRegistry getSt putSt modSt =
-  runWithTempRegistry $
+modifyWithTempRegistry = modifyWithTempTracingRegistry nullTracer ""
+
+modifyWithTempTracingRegistry ::
+  forall m st a.
+  (MonadSTM m, MonadMask m, MonadThread m) =>
+  Tracer m (TraceResourceRegistry m) ->
+  RegistryLabel ->
+  -- | Get the state
+  m st ->
+  -- | Store the new state
+  (st -> ExitCase st -> m ()) ->
+  -- | Modify the state
+  StateT st (WithTempRegistry st m) a ->
+  m a
+modifyWithTempTracingRegistry trcr lbl getSt putSt modSt =
+  runWithTempTracingRegistry trcr lbl $
     fst <$> generalBracket (lift getSt) transfer mutate
  where
   transfer :: st -> ExitCase (a, st) -> WithTempRegistry st m ()
@@ -1085,9 +1215,20 @@ allocate ::
   -- | Release the resource
   (a -> m ()) ->
   m (ResourceKey m, a)
-allocate rr alloc free =
+allocate rr = allocateLabelled rr "unlabelled"
+
+allocateLabelled ::
+  forall m a.
+  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+  ResourceRegistry m ->
+  ResourceLabel ->
+  (ResourceId -> m a) ->
+  -- | Release the resource
+  (a -> m ()) ->
+  m (ResourceKey m, a)
+allocateLabelled rr lbl alloc free =
   mustBeRight
-    <$> allocateEither rr (fmap Right . alloc) (\a -> free a >> return True)
+    <$> allocateEitherLabelled rr lbl (fmap Right . alloc) (\a -> free a >> return True)
 
 -- | Generalization of 'allocate' for allocation functions that may fail
 allocateEither ::
@@ -1099,7 +1240,19 @@ allocateEither ::
   -- hasn't been released or closed before.
   (a -> m Bool) ->
   m (Either e (ResourceKey m, a))
-allocateEither rr alloc free = do
+allocateEither rr = allocateEitherLabelled rr "unlabelled"
+
+allocateEitherLabelled ::
+  forall m e a.
+  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+  ResourceRegistry m ->
+  ResourceLabel ->
+  (ResourceId -> m (Either e a)) ->
+  -- | Release the resource, return 'True' when the resource
+  -- hasn't been released or closed before.
+  (a -> m Bool) ->
+  m (Either e (ResourceKey m, a))
+allocateEitherLabelled rr lbl alloc free = do
   context <- captureContext
   ensureKnownThread rr context
   -- We check if the registry has been closed when we allocate the key, so
@@ -1109,6 +1262,9 @@ allocateEither rr alloc free = do
     Left closed ->
       throwRegistryClosed rr context closed
     Right key -> mask_ $ do
+      traceWith
+        (registryTracer rr)
+        (TraceResourceAllocated (TrResourceAllocated (registryLabel rr) lbl key))
       ma <- alloc key
       case ma of
         Left e -> return $ Left e
@@ -1117,7 +1273,7 @@ allocateEither rr alloc free = do
           -- 'updateState' just in case /that/ throws an exception.
           inserted <-
             updateState rr $
-              insertResource key (mkResource context a)
+              insertResource key (mkResource context a key)
           case inserted of
             Left closed -> do
               -- Despite the earlier check, it's possible that the registry
@@ -1129,11 +1285,12 @@ allocateEither rr alloc free = do
             Right () ->
               return $ Right (ResourceKey rr key, a)
  where
-  mkResource :: Context m -> a -> Resource m
-  mkResource context a =
+  mkResource :: Context m -> a -> ResourceId -> Resource m
+  mkResource context a k =
     Resource
       { resourceContext = context
-      , resourceRelease = Release $ free a
+      , resourceRelease = Release (free a) (registryTracer rr, k, registryLabel rr)
+      , resourceLabel = lbl
       }
 
 throwRegistryClosed ::
@@ -1206,7 +1363,7 @@ releaseAll ::
   (MonadMask m, MonadSTM m, MonadThread m, HasCallStack) =>
   ResourceRegistry m ->
   m ()
-releaseAll rr = releaseAllBy (\_ -> unlessClosed $ gets getYoungestToOldest) rr
+releaseAll = releaseAllBy (\_ -> unlessClosed $ gets getYoungestToOldest)
 
 -- | This is to 'releaseAll' what 'unsafeRelease' is to 'release': we do not
 -- insist that this funciton is called from a thread that is known to the
@@ -1281,9 +1438,19 @@ waitAnyThread ts = snd <$> waitAny (map threadAsync ts)
 -- different registry but will try to allocate resources in this registry.
 allocateThread ::
   (MonadMask m, MonadAsync m, HasCallStack) =>
-  ResourceRegistry m -> (ResourceId -> m (Thread m a)) -> m (ResourceKey m, Thread m a)
-allocateThread rr alloc = do
-  (k, t) <- allocate rr alloc cancelThread
+  ResourceRegistry m ->
+  (ResourceId -> m (Thread m a)) ->
+  m (ResourceKey m, Thread m a)
+allocateThread rr = allocateLabelledThread rr "unlabelled"
+
+allocateLabelledThread ::
+  (MonadMask m, MonadAsync m, HasCallStack) =>
+  ResourceRegistry m ->
+  ResourceLabel ->
+  (ResourceId -> m (Thread m a)) ->
+  m (ResourceKey m, Thread m a)
+allocateLabelledThread rr lbl alloc = do
+  (k, t) <- allocateLabelled rr lbl alloc cancelThread
   updateState rr $
     modify
       (\s -> s{registryReleaseThreads = ReleaseThread (void (release k)) : registryReleaseThreads s})
@@ -1300,7 +1467,10 @@ forkThread ::
   m (Thread m a)
 forkThread rr label body =
   snd
-    <$> allocateThread rr (\key -> mkThread key <$> async (body' key))
+    <$> allocateLabelledThread
+      rr
+      (ResourceLabel $ T.pack label)
+      (\key -> mkThread key <$> async (body' key))
  where
   mkThread :: ResourceId -> Async m a -> Thread m a
   mkThread rid child =
@@ -1623,20 +1793,82 @@ transferRegistry fromReg toReg = do
 
       forM_
         ( zip keys $
-            Map.elems (registryResources regState)
+            Map.toList (registryResources regState)
         )
-        ( \(k, res) -> do
+        ( \(k, (oldK, res)) -> do
             -- Insert the resources into the new registry
-            inserted <- updateState toReg (insertResource k res)
-
+            inserted <-
+              updateState
+                toReg
+                ( insertResource
+                    k
+                    res
+                      { resourceRelease =
+                          (resourceRelease res){releaseTracingInfo = (registryTracer toReg, k, registryLabel toReg)}
+                      }
+                )
+            traceWith
+              (registryTracer fromReg)
+              ( TraceResourceTransferred
+                  ( TrResourceTransferred
+                      (registryLabel fromReg)
+                      (registryLabel toReg)
+                      (resourceLabel res)
+                      oldK
+                      k
+                  )
+              )
             case inserted of
               -- If the destination registry is closed, throw
               Left closed -> do
-                let Release rel = resourceRelease res
-                void rel
+                void $ releaseResource res
                 throwRegistryClosed toReg context closed
               Right () ->
                 pure ()
         )
 
       pure $ map (ResourceKey toReg) keys
+
+data TraceResourceRegistry m
+  = TraceResourceAllocated TraceResourceAllocated
+  | TraceResourceReleased TraceResourceReleased
+  | TraceResourceTransferred TraceResourceTransferred
+  | TraceRegistryCreated (TraceRegistryCreated m)
+  | TraceRegistryClosed TraceRegistryClosed
+
+deriving instance MonadThread m => Show (TraceResourceRegistry m)
+
+data TraceResourceAllocated = TrResourceAllocated
+  { allocatedInRegistry :: !RegistryLabel
+  , theAllocatedResourceLabel :: !ResourceLabel
+  , theAllocatedResourceId :: !ResourceId
+  }
+  deriving Show
+
+data TraceResourceReleased = TrResourceReleased
+  { releasedInRegistry :: !RegistryLabel
+  , theReleasedResourceLabel :: !ResourceLabel
+  , theReleasedResourceId :: !ResourceId
+  }
+  deriving Show
+
+data TraceResourceTransferred = TrResourceTransferred
+  { transferredFromRegistry :: !RegistryLabel
+  , transferredToRegistry :: !RegistryLabel
+  , theTransferredResourceLabel :: !ResourceLabel
+  , theTransferredOldResourceId :: !ResourceId
+  , theTransferredNewResourceId :: !ResourceId
+  }
+  deriving Show
+
+data TraceRegistryCreated m = TrRegistryCreated
+  { createdRegistry :: !RegistryLabel
+  , createdInThread :: !(ThreadId m, Maybe String)
+  }
+
+deriving instance MonadThread m => Show (TraceRegistryCreated m)
+
+newtype TraceRegistryClosed = TrRegistryClosed
+  { closedRegistry :: RegistryLabel
+  }
+  deriving Show
