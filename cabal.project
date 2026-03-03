@@ -9,3 +9,25 @@ package strict-checked-vars
   flags: +checktvarinvariants +checkmvarinvariants
 
 tests: True
+
+-- cabal-allow-newer
+if impl (ghc >= 9.14)
+  allow-newer:
+    , aeson:containers
+    , aeson:template-haskell
+    , binary:containers
+    , indexed-traversable:base
+    , indexed-traversable:containers
+    , indexed-traversable-instances:base
+    , semialign:base
+    , semialign:containers
+    , semialign:indexed-traversable
+    , these:base
+    , tree-diff:base
+    , tree-diff:aeson
+    , tree-diff:base
+    , tree-diff:containers
+    , tree-diff:semialign
+    , tree-diff:these
+    , tree-diff:uuid-types
+    , uuid-types:template-haskell

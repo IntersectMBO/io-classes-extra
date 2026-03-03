@@ -57,7 +57,7 @@ library
   default-extensions: ImportQualifiedPost
   build-depends:
     base >=4.9 && <5,
-    io-classes:{io-classes, strict-mvar, strict-stm} ^>=1.8,
+    io-classes:{io-classes, strict-mvar, strict-stm} ^>=1.8 || ^>=1.9,
 
   ghc-options:
     -Wall
@@ -91,7 +91,7 @@ test-suite test
     QuickCheck,
     base,
     io-classes,
-    io-sim,
+    io-sim <1.10,
     nothunks,
     strict-checked-vars,
     tasty,
