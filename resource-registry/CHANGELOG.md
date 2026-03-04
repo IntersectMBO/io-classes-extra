@@ -1,5 +1,10 @@
 # Revision history of `resource-registry`
 
+## 0.2.1.0 - 2026-03-04
+
+* Define `impossibleToNotTransfer` for fundamental resource allocation in
+  `WithTempRegistry`.
+
 ## 0.2.0.0 — 2025-10-23
 
 * Define `transferRegistry` for moving all resources from one registry to a
