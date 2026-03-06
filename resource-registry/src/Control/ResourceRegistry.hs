@@ -265,6 +265,7 @@ module Control.ResourceRegistry
   , runInnerWithTempRegistry
   , runWithTempRegistry
   , transferRegistry
+  , impossibleToNotTransfer
 
     -- * Unsafe combinators primarily for testing
   , closeRegistry
@@ -862,6 +863,17 @@ runWithTempRegistry m = withRegistry $ \rr -> do
   whenJust (Just x) f = f x
   whenJust Nothing _ = pure ()
 
+-- | This combinator can be used with 'allocateTemp' to indicate that the
+-- resource will always be considered tracked in the final state.
+--
+-- > allocateTemp alloc free impossibleToNotTransfer
+--
+-- Using this combinator will result in the resource only being closed on
+-- exceptions that happen during the 'runWithTempRegistry' scope, very much like
+-- 'bracketOnError' would.
+impossibleToNotTransfer :: a -> b -> Bool
+impossibleToNotTransfer _ _ = True
+
 -- | Embed a self-contained 'WithTempRegistry' computation into a larger one.
 --
 -- The internal 'WithTempRegistry' is effectively passed to
@@ -998,6 +1010,13 @@ untrackTransferredTo rr transferredTo st =
 
 -- | Allocate a resource in a temporary registry until it has been transferred
 -- to the final state @st@. See 'runWithTempRegistry' for more details.
+--
+-- Sometimes the resource will necessarily end up in the final state with no
+-- possible way in which such state does exist without holding the resource. In
+-- such cases, we can use 'allocateTemp' very much like a 'bracketOnError' to
+-- take care of releasing the resource only if an exception comes. For this, one
+-- can use the combinator 'impossibleToNotTransfer' as the last argument to
+-- 'allocateTemp'.
 allocateTemp ::
   (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
   -- | Allocate the resource
