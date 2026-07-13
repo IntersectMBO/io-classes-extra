@@ -2,14 +2,12 @@ name: Haskell CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   pull_request:
-  merge_group:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-
 
 permissions:
   contents: read
@@ -23,8 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ["9.6.7", "9.8.4", "9.10.2", "9.12.2", "9.14.1"]
-        cabal: ["3.16"]
+        ghc: ["9.6.7", "9.8.4", "9.10.2", "9.12.4", "9.14.1"]
         os: [ubuntu-latest, windows-latest, macOS-latest]
 
     steps:
@@ -36,7 +33,7 @@ jobs:
       uses: haskell-actions/setup@v2
       with:
         ghc-version: ${{ matrix.ghc }}
-        cabal-version: ${{ matrix.cabal }}
+        cabal-version: "3.16"
         cabal-update: true
 
     - name: Configure the build
@@ -44,38 +41,15 @@ jobs:
         cabal configure --enable-tests --ghc-options="-Werror" --ghc-options="-fno-ignore-asserts"
         cat cabal.project.local
 
-    - name: Record cabal dependencies
-      id: record-deps
-      run: |
-        cabal build all --dry-run
-
-    - name: "Restore cache"
-      uses: actions/cache/restore@v4
-      id: restore-cabal-cache
-      env:
-        cache-name: cache-cabal-build
+    - name: Cache cabal store and build artifacts
+      uses: actions/cache@v4
       with:
-        path: ${{ steps.setup-haskell.outputs.cabal-store }}
-        key: ${{ runner.os }}-${{ matrix.ghc }}-${{ env.cache-name }}-${{ hashFiles('**/*.cabal') }}-${{ hashFiles('**/cabal.project') }}
+        path: |
+          ${{ steps.setup-haskell.outputs.cabal-store }}
+          dist-newstyle
+        key: ${{ runner.os }}-ghc${{ matrix.ghc }}-${{ hashFiles('cabal.project', '**/*.cabal') }}
         restore-keys: |
-          ${{ runner.os }}-${{ matrix.ghc }}-${{ env.cache-name }}-${{ hashFiles('**/*.cabal') }}-${{ hashFiles('**/cabal.project') }}
-          ${{ runner.os }}-${{ matrix.ghc }}-${{ env.cache-name }}-${{ hashFiles('**/*.cabal') }}-
-          ${{ runner.os }}-${{ matrix.ghc }}-${{ env.cache-name }}-
-
-    - name: Install cabal dependencies
-      id: build-dependencies
-      run: cabal build --only-dependencies --enable-tests all
-
-    - name: "Save cache"
-      uses: actions/cache/save@v4
-      id: save-cabal-cache
-      # Note: cache-hit will be set to true only when cache hit occurs for the
-      # exact key match. For a partial key match via restore-keys or a cache
-      # miss, it will be set to false.
-      if: steps.build-dependencies.outcome == 'success' && steps.restore-cabal-cache.outputs.cache-hit != 'true'
-      with:
-        path: ${{ steps.setup-haskell.outputs.cabal-store }}
-        key:  ${{ steps.restore-cabal-cache.outputs.cache-primary-key }}
+          ${{ runner.os }}-ghc${{ matrix.ghc }}-
 
     - name: Build
       run: cabal build all
@@ -83,134 +57,38 @@ jobs:
     - name: Run tests
       run: cabal test -j1 all
 
-  # Check formatting for Haskell files
   fourmolu:
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        ghc: ["9.10.2"]
-        cabal: ["3.14"]
-        os: [ubuntu-latest]
-
-    # Fix the index-state so we can get proper caching effects. Change this to a
-    # more recent time if you want to use a newer version of stylish-haskell, or
-    # if you want stylish-haskell to use updated dependencies.
-    #
-    # We use this environment variable in the primary key of our caches, and as
-    # an argument to cabal install. This ensures that we never rebuild
-    # dependencies because of newly uploaded packages unless we want to.
-    env:
-      hackage-index-state: "2025-01-25T21:25:58Z"
-
+    name: Formatting (fourmolu)
+    runs-on: ubuntu-latest
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install system dependencies (apt-get)
-      run: |
-        sudo apt-get update
-        sudo apt-get -y install fd-find
+      - name: Install fourmolu 0.20.0.0
+        run: |
+          curl -fsSL https://github.com/fourmolu/fourmolu/releases/download/v0.20.0.0/fourmolu-0.20.0.0-linux-x86_64.zip -o /tmp/fourmolu.zip
+          unzip -o /tmp/fourmolu.zip -d /tmp/fourmolu
+          sudo install -m 0755 "$(find /tmp/fourmolu -type f | head -n1)" /usr/local/bin/fourmolu
+          fourmolu --version
 
-    - name: Setup Haskell
-      id: setup-haskell
-      uses: haskell-actions/setup@v2
-      with:
-        ghc-version: ${{ matrix.ghc }}
-        cabal-version: ${{ matrix.cabal }}
-        cabal-update: false
+      - name: Check Haskell formatting
+        run: ./scripts/fourmolize.sh
 
-    - name: Cabal update
-      run: cabal update
-
-    - name: Setup cabal bin path
-      run: echo "$HOME/.cabal/bin" >> $GITHUB_PATH
-
-    - name: Cache cabal store
-      uses: actions/cache@v4
-      env:
-        cache-name: cache-cabal-fourmolu
-      with:
-        path: ${{ steps.setup-haskell.outputs.cabal-store }}
-        key: ${{ runner.os }}-${{ matrix.ghc }}-${{ env.cache-name }}-${{ env.hackage-index-state }}
-        restore-keys: |
-          ${{ runner.os }}-${{ matrix.ghc }}-${{ env.cache-name }}-
-
-    - name: Install fourmolu
-      run: cabal install --ignore-project --index-state="${{ env.hackage-index-state }}" fourmolu-0.18.0.0
-
-    - name: Record fourmolu version
-      run: |
-        which fourmolu
-        fourmolu --version
-
-    - name: Run stylish-haskell
-      run: |
-        ./scripts/format-fourmolu.sh
-        git diff --exit-code
-
-  # Check formatting for cabal files
-  cabal-gild:
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        ghc: ["9.10"]
-        cabal: ["3.14"]
-        os: [ubuntu-latest]
-
-    # See the comment on the hackage-index-state environment variable for the
-    # fourmolu job.
-    env:
-      hackage-index-state: "2025-05-22T02:57:10Z"
-
+  cabal-format:
+    name: Cabal formatting (cabal-gild)
+    runs-on: ubuntu-latest
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install system dependencies (apt-get)
-      run: |
-        sudo apt-get update
-        sudo apt-get -y install fd-find
+      - name: Install cabal-gild 1.8.4.1
+        run: |
+          mkdir -p /tmp/cabal-gild
+          curl -fsSL https://github.com/tfausak/cabal-gild/releases/download/1.8.4.1/cabal-gild-1.8.4.1-linux-x64.tar.gz -o /tmp/cabal-gild.tar.gz
+          tar -xzf /tmp/cabal-gild.tar.gz -C /tmp/cabal-gild
+          sudo install -m 0755 "$(find /tmp/cabal-gild -name cabal-gild -type f | head -n1)" /usr/local/bin/cabal-gild
+          cabal-gild --version
 
-    - name: Setup Haskell
-      id: setup-haskell
-      uses: haskell-actions/setup@v2
-      with:
-        ghc-version: ${{ matrix.ghc }}
-        cabal-version: ${{ matrix.cabal }}
-        cabal-update: false
-
-    - name: Cabal update
-      run: cabal update
-
-    - name: Setup cabal bin path
-      run: echo "$HOME/.cabal/bin" >> $GITHUB_PATH
-
-    - name: Cache cabal store
-      uses: actions/cache@v4
-      env:
-        cache-name: cache-cabal-cabal-gild
-      with:
-        path: ${{ steps.setup-haskell.outputs.cabal-store }}
-        key: ${{ runner.os }}-${{ matrix.ghc }}-${{ env.cache-name }}-${{ env.hackage-index-state }}
-        restore-keys: |
-          ${{ runner.os }}-${{ matrix.ghc }}-${{ env.cache-name }}-
-
-    - name: Install cabal-gild
-      run: cabal install --ignore-project --index-state="${{ env.hackage-index-state }}" cabal-gild-1.6.0.2
-
-    - name: Record cabal-gild version
-      run: |
-        which cabal-gild
-        cabal-gild --version
-
-    - name: Run cabal-gild
-      run: |
-        ./scripts/format-cabal.sh
-        git diff --exit-code
+      - name: Check cabal file formatting
+        run: ./scripts/cabal-format.sh
 
   # Check cabal files
   cabal-check:
@@ -220,8 +98,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ["9.10.2"]
-        cabal: ["3.14"]
+        ghc: ["9.14.1"]
         os: [ubuntu-latest]
 
     steps:
@@ -233,11 +110,8 @@ jobs:
       uses: haskell-actions/setup@v2
       with:
         ghc-version: ${{ matrix.ghc }}
-        cabal-version: ${{ matrix.cabal }}
-        cabal-update: false
-
-    - name: Cabal update
-      run: cabal update
+        cabal-version: "3.16"
+        cabal-update: true
 
     - name: Run cabal check
       run: |
