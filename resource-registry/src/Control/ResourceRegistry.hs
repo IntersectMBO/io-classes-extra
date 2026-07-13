@@ -264,7 +264,6 @@ module Control.ResourceRegistry
   , modifyWithTempRegistry
   , runInnerWithTempRegistry
   , runWithTempRegistry
-  , transferRegistry
   , impossibleToNotTransfer
 
     -- * Unsafe combinators primarily for testing
@@ -480,17 +479,13 @@ unlessClosed f = do
 
 -- | Allocate key for new resource
 allocKey :: State (RegistryState m) (Either PrettyCallStack ResourceId)
-allocKey = unlessClosed $ unsafeAllocKey
+allocKey = unlessClosed unsafeAllocKey
 
 unsafeAllocKey :: State (RegistryState m) ResourceId
 unsafeAllocKey = do
   nextKey <- gets registryNextKey
   modify $ \st -> st{registryNextKey = succ nextKey}
   return nextKey
-
--- | Allocate multiple keys for resources
-allocNKeys :: Int -> State (RegistryState m) (Either PrettyCallStack [ResourceId])
-allocNKeys n = unlessClosed $ replicateM n $ unsafeAllocKey
 
 -- | Insert new resource
 insertResource ::
@@ -1225,7 +1220,7 @@ releaseAll ::
   (MonadMask m, MonadSTM m, MonadThread m, HasCallStack) =>
   ResourceRegistry m ->
   m ()
-releaseAll rr = releaseAllBy (\_ -> unlessClosed $ gets getYoungestToOldest) rr
+releaseAll = releaseAllBy (\_ -> unlessClosed $ gets getYoungestToOldest)
 
 -- | This is to 'releaseAll' what 'unsafeRelease' is to 'release': we do not
 -- insist that this funciton is called from a thread that is known to the
@@ -1612,50 +1607,3 @@ instance
   NoThunks (Bimap k v)
   where
   wNoThunks ctxt = noThunksInKeysAndValues ctxt . Bimap.toList
-
--- | Move all the resources from the origin registry to the destination
--- registry and return the list of allocated 'ResourceKey's.
---
--- Transferring individual resources between registries is risky because a
--- later resource in the origin registry might depend on a resource that we are
--- trying to transfer. However, transferring whole registries is fine.
-transferRegistry ::
-  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
-  ResourceRegistry m ->
-  ResourceRegistry m ->
-  m [ResourceKey m]
-transferRegistry fromReg toReg = do
-  context <- captureContext
-
-  -- The calling thread is known to the origin registry
-  ensureKnownThread fromReg context
-
-  -- Alloc all the needed keys
-  mKeys <- updateState toReg . allocNKeys =<< countResources fromReg
-
-  case mKeys of
-    -- If the destination registry is closed, throw
-    Left closed -> throwRegistryClosed toReg context closed
-    Right keys -> mask_ $ do
-      -- Get the resources out of the origin registry and empty it
-      regState <- atomically $ swapTVar (registryState fromReg) initState
-
-      forM_
-        ( zip keys $
-            Map.elems (registryResources regState)
-        )
-        ( \(k, res) -> do
-            -- Insert the resources into the new registry
-            inserted <- updateState toReg (insertResource k res)
-
-            case inserted of
-              -- If the destination registry is closed, throw
-              Left closed -> do
-                let Release rel = resourceRelease res
-                void rel
-                throwRegistryClosed toReg context closed
-              Right () ->
-                pure ()
-        )
-
-      pure $ map (ResourceKey toReg) keys
