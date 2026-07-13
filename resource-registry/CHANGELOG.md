@@ -1,5 +1,9 @@
 # Revision history of `resource-registry`
 
+## 0.3.0.0 - 2026-07-13
+
+* Removed `transferRegistry`.
+
 ## 0.2.1.0 - 2026-03-04
 
 * Define `impossibleToNotTransfer` for fundamental resource allocation in

@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name: resource-registry
-version: 0.2.1.0
+version: 0.3.0.0
 synopsis: Track allocated resources
 description:
   When the scope of a @bracket@ doesn't enclose all uses of the resource, a
@@ -35,7 +35,7 @@ source-repository this
   type: git
   location: https://github.com/IntersectMBO/io-classes-extra
   subdir: resource-registry
-  tag: resource-registry-0.2.1.0
+  tag: resource-registry-0.3.0.0
 
 common warnings
   ghc-options:
