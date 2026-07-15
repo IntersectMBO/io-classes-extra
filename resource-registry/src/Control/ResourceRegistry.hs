@@ -1302,7 +1302,10 @@ allocateThread rr alloc = do
   (k, t) <- allocate rr alloc cancelThread
   updateState rr $
     modify
-      (\s -> s{registryReleaseThreads = ReleaseThread (void (release k)) : registryReleaseThreads s})
+      ( \s ->
+          let !r = ReleaseThread (void (release k))
+           in s{registryReleaseThreads = r : registryReleaseThreads s}
+      )
   pure (k, t)
 
 -- | Fork a new thread
