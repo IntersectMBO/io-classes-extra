@@ -1,5 +1,9 @@
 # Revision history of `resource-registry`
 
+## 0.4.0.0 - 2026-07-15
+
+* Added `MonadEvaluate m` constraint to multiple functions.
+
 ## 0.3.0.0 - 2026-07-13
 
 * Removed `transferRegistry`.

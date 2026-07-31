@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -275,6 +276,7 @@ module Control.ResourceRegistry
 
 import Control.Applicative ((<|>))
 import Control.Concurrent.Class.MonadSTM.Strict
+import Control.DeepSeq (force)
 import Control.Exception (asyncExceptionFromException)
 import Control.Monad
 import Control.Monad.Class.MonadAsync
@@ -601,7 +603,7 @@ instance Exception RegistryClosedException
 -- You are strongly encouraged to use 'withRegistry' instead.
 -- Exported primarily for the benefit of tests.
 unsafeNewRegistry ::
-  (MonadSTM m, MonadThread m, HasCallStack) =>
+  (MonadSTM m, MonadThread m, MonadEvaluate m, HasCallStack) =>
   m (ResourceRegistry m)
 unsafeNewRegistry = do
   context <- captureContext
@@ -644,7 +646,7 @@ initState =
 -- important for exception handlers that catch all-except-asynchronous
 -- exceptions.
 closeRegistry ::
-  (MonadMask m, MonadThread m, MonadSTM m, HasCallStack) =>
+  (MonadMask m, MonadThread m, MonadSTM m, MonadEvaluate m, HasCallStack) =>
   ResourceRegistry m ->
   m ()
 closeRegistry rr = mask_ $ releaseAllBy close rr
@@ -653,7 +655,7 @@ closeRegistry rr = mask_ $ releaseAllBy close rr
 -- is to be used both by 'closeRegistry' which will 'close' the registry, as
 -- well as 'releaseAll' which will not actually close the registry.
 releaseAllBy ::
-  (MonadMask m, MonadThread m, MonadSTM m, HasCallStack) =>
+  (MonadMask m, MonadThread m, MonadSTM m, MonadEvaluate m, HasCallStack) =>
   (PrettyCallStack -> State (RegistryState m) (Either PrettyCallStack [ResourceId])) ->
   ResourceRegistry m ->
   m ()
@@ -669,7 +671,7 @@ releaseAllBy action rr = do
 
 -- | Unsafe version of 'releaseAllBy'.
 unsafeReleaseAllBy ::
-  (MonadMask m, MonadThread m, MonadSTM m, HasCallStack) =>
+  (MonadMask m, MonadThread m, MonadSTM m, MonadEvaluate m, HasCallStack) =>
   (PrettyCallStack -> State (RegistryState m) (Either PrettyCallStack [ResourceId])) ->
   Context m ->
   ResourceRegistry m ->
@@ -729,7 +731,7 @@ releaseResources rr sortedKeys releaser = do
 --
 -- See documentation of 'ResourceRegistry' for a detailed discussion.
 withRegistry ::
-  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+  (MonadSTM m, MonadMask m, MonadThread m, MonadEvaluate m, HasCallStack) =>
   (ResourceRegistry m -> m a) ->
   m a
 withRegistry = bracket unsafeNewRegistry closeRegistry
@@ -770,7 +772,7 @@ withRegistry = bracket unsafeNewRegistry closeRegistry
 --
 -- See documentation of 'ResourceRegistry' for a more general discussion.
 bracketWithPrivateRegistry ::
-  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+  (MonadSTM m, MonadMask m, MonadThread m, MonadEvaluate m, HasCallStack) =>
   (ResourceRegistry m -> m a) ->
   -- | Release the resource
   (a -> m ()) ->
@@ -825,7 +827,7 @@ bracketWithPrivateRegistry newA closeA body =
 -- because the state /must/ have been stored somewhere safely, transferring
 -- the resources, before the temporary registry is closed.
 runWithTempRegistry ::
-  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+  (MonadSTM m, MonadMask m, MonadThread m, MonadEvaluate m, HasCallStack) =>
   WithTempRegistry st m (a, st) ->
   m a
 runWithTempRegistry m = withRegistry $ \rr -> do
@@ -894,7 +896,7 @@ impossibleToNotTransfer _ _ = True
 -- risk of /double freeing/, which can be harmless if anticipated.
 runInnerWithTempRegistry ::
   forall innerSt st m res a.
-  (MonadSTM m, MonadMask m, MonadThread m) =>
+  (MonadSTM m, MonadMask m, MonadEvaluate m, MonadThread m) =>
   -- | The embedded computation; see ASSUMPTION above
   WithTempRegistry innerSt m (a, innerSt, res) ->
   -- | How to free; same as for 'allocateTemp'
@@ -1013,7 +1015,7 @@ untrackTransferredTo rr transferredTo st =
 -- can use the combinator 'impossibleToNotTransfer' as the last argument to
 -- 'allocateTemp'.
 allocateTemp ::
-  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+  (MonadSTM m, MonadMask m, MonadThread m, MonadEvaluate m, HasCallStack) =>
   -- | Allocate the resource
   m a ->
   -- | Release the resource, return 'True' when the resource was actually
@@ -1046,7 +1048,7 @@ allocateTemp alloc free isTransferred = WithTempRegistry $ do
 -- returned @st@.
 modifyWithTempRegistry ::
   forall m st a.
-  (MonadSTM m, MonadMask m, MonadThread m) =>
+  (MonadSTM m, MonadMask m, MonadThread m, MonadEvaluate m) =>
   -- | Get the state
   m st ->
   -- | Store the new state
@@ -1093,7 +1095,7 @@ countResources rr = atomically $ aux <$> readTVar (registryState rr)
 -- <http://www.well-typed.com/blog/97/> for details.
 allocate ::
   forall m a.
-  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+  (MonadSTM m, MonadMask m, MonadThread m, MonadEvaluate m, HasCallStack) =>
   ResourceRegistry m ->
   (ResourceId -> m a) ->
   -- | Release the resource
@@ -1106,7 +1108,7 @@ allocate rr alloc free =
 -- | Generalization of 'allocate' for allocation functions that may fail
 allocateEither ::
   forall m e a.
-  (MonadSTM m, MonadMask m, MonadThread m, HasCallStack) =>
+  (MonadSTM m, MonadMask m, MonadThread m, MonadEvaluate m, HasCallStack) =>
   ResourceRegistry m ->
   (ResourceId -> m (Either e a)) ->
   -- | Release the resource, return 'True' when the resource
@@ -1177,7 +1179,7 @@ throwRegistryClosed rr context closed =
 --
 -- When the resource has not been released before, its context is returned.
 release ::
-  (MonadMask m, MonadSTM m, MonadThread m, HasCallStack) =>
+  (MonadMask m, MonadSTM m, MonadThread m, MonadEvaluate m, HasCallStack) =>
   ResourceKey m ->
   m (Maybe (Context m))
 release key@(ResourceKey rr _) = do
@@ -1217,7 +1219,7 @@ unsafeRelease (ResourceKey rr rid) = do
 --
 -- See 'closeRegistry' for more details.
 releaseAll ::
-  (MonadMask m, MonadSTM m, MonadThread m, HasCallStack) =>
+  (MonadMask m, MonadSTM m, MonadThread m, MonadEvaluate m, HasCallStack) =>
   ResourceRegistry m ->
   m ()
 releaseAll = releaseAllBy (\_ -> unlessClosed $ gets getYoungestToOldest)
@@ -1226,7 +1228,7 @@ releaseAll = releaseAllBy (\_ -> unlessClosed $ gets getYoungestToOldest)
 -- insist that this funciton is called from a thread that is known to the
 -- registry. See 'unsafeRelease' for why this is dangerous.
 unsafeReleaseAll ::
-  (MonadMask m, MonadSTM m, MonadThread m, HasCallStack) =>
+  (MonadMask m, MonadSTM m, MonadThread m, MonadEvaluate m, HasCallStack) =>
   ResourceRegistry m ->
   m ()
 unsafeReleaseAll rr = do
@@ -1294,19 +1296,22 @@ waitAnyThread ts = snd <$> waitAny (map threadAsync ts)
 -- cancelled before the registry is closed. Useful for threads that belong to a
 -- different registry but will try to allocate resources in this registry.
 allocateThread ::
-  (MonadMask m, MonadAsync m, HasCallStack) =>
+  (MonadMask m, MonadAsync m, MonadEvaluate m, HasCallStack) =>
   ResourceRegistry m -> (ResourceId -> m (Thread m a)) -> m (ResourceKey m, Thread m a)
 allocateThread rr alloc = do
   (k, t) <- allocate rr alloc cancelThread
   updateState rr $
     modify
-      (\s -> s{registryReleaseThreads = ReleaseThread (void (release k)) : registryReleaseThreads s})
+      ( \s ->
+          let !r = ReleaseThread (void (release k))
+           in s{registryReleaseThreads = r : registryReleaseThreads s}
+      )
   pure (k, t)
 
 -- | Fork a new thread
 forkThread ::
   forall m a.
-  (MonadMask m, MonadAsync m, HasCallStack) =>
+  (MonadMask m, MonadAsync m, MonadEvaluate m, HasCallStack) =>
   ResourceRegistry m ->
   -- | Label for the thread
   String ->
@@ -1407,7 +1412,7 @@ forkThread rr label body =
 -- make use of the registry can use the unsafe API. This should be used with
 -- caution, however.
 withThread ::
-  (MonadMask m, MonadAsync m) =>
+  (MonadMask m, MonadAsync m, MonadEvaluate m) =>
   ResourceRegistry m ->
   -- | Label for the thread
   String ->
@@ -1424,7 +1429,7 @@ linkToRegistry t = linkTo (registryThread $ threadRegistry t) (threadAsync t)
 --
 -- This function is just a convenience.
 forkLinkedThread ::
-  (MonadAsync m, MonadFork m, MonadMask m, HasCallStack) =>
+  (MonadAsync m, MonadFork m, MonadMask m, MonadEvaluate m, HasCallStack) =>
   ResourceRegistry m ->
   -- | Label for the thread
   String ->
@@ -1517,10 +1522,10 @@ instance NoThunks (Context m) where
 
 deriving instance Show (Context m)
 
-captureContext :: MonadThread m => HasCallStack => m (Context m)
+captureContext :: (MonadThread m, MonadEvaluate m) => HasCallStack => m (Context m)
 captureContext = do
   tid <- myThreadId
-  lbl <- threadLabel tid
+  !lbl <- evaluate . force =<< threadLabel tid
   pure $ Context prettyCallStack tid lbl
 
 {-------------------------------------------------------------------------------

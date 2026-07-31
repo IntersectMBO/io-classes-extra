@@ -315,7 +315,7 @@ instance MonadThread m => Eq (TestThread m) where
 -- to avoid circular reasoning in the tests.
 newThread ::
   forall m.
-  (MonadMVar m, MonadMask m, MonadAsync m, MonadFork m) =>
+  (MonadMVar m, MonadMask m, MonadAsync m, MonadEvaluate m, MonadFork m) =>
   StrictTVar m [TestThread m] ->
   ResourceRegistry m ->
   Link (TestThread m) ->
@@ -369,7 +369,7 @@ newThread alive parentReg = \shouldLink -> do
 
 runIO ::
   forall m.
-  (MonadMVar m, MonadTimer m, MonadMask m, MonadAsync m, MonadFork m) =>
+  (MonadMVar m, MonadTimer m, MonadMask m, MonadAsync m, MonadEvaluate m, MonadFork m) =>
   StrictTVar m [TestThread m] ->
   ResourceRegistry m ->
   Cmd (TestThread m) ->
@@ -547,7 +547,7 @@ instance MonadThread m => ToExpr (TestThread m) where
 -------------------------------------------------------------------------------}
 
 semantics ::
-  (MonadMVar m, MonadMask m, MonadAsync m, MonadFork m, MonadTimer m, Typeable m) =>
+  (MonadMVar m, MonadMask m, MonadAsync m, MonadFork m, MonadTimer m, MonadEvaluate m, Typeable m) =>
   StrictTVar m [TestThread m] ->
   ResourceRegistry m ->
   At m Cmd Concrete ->
@@ -595,7 +595,7 @@ symbolicResp m c = At <$> traverse (const genSym) resp
   (resp, _mock') = step m c
 
 sm ::
-  (MonadMVar m, MonadMask m, MonadAsync m, MonadFork m, MonadTimer m, Typeable m) =>
+  (MonadMVar m, MonadMask m, MonadAsync m, MonadFork m, MonadTimer m, MonadEvaluate m, Typeable m) =>
   StrictTVar m [TestThread m] ->
   ResourceRegistry m ->
   StateMachine (Model m) (At m Cmd) m (At m Resp)
