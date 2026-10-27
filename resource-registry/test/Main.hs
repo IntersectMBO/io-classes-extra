@@ -48,7 +48,9 @@ import Data.Map.Strict qualified as Map
 import Data.TreeDiff
 import Data.Typeable
 import GHC.Generics (Generic, Generic1)
+import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import Generics.SOP qualified as SOP
+import System.Mem (performMajorGC)
 import Test.QuickCheck hiding (forAll)
 import Test.QuickCheck.Monadic hiding (run)
 import Test.StateMachine
@@ -67,6 +69,7 @@ main =
     testGroup
       "ResourceRegistry"
       [ testProperty "sequential" prop_sequential
+      , testProperty "released threads do not leak" $ once prop_noLeakReleasedThreads
       ]
 
 {-------------------------------------------------------------------------------
@@ -634,6 +637,69 @@ prop_sequential' cmds = monadicIO $ do
 
 unused :: a
 unused = error "not used during command generation"
+
+{-------------------------------------------------------------------------------
+  Memory use of threads
+-------------------------------------------------------------------------------}
+
+-- | Allocate threads of another registry with 'allocateThread', on one open
+-- registry, and release them with 'release'. Check that live memory does not
+-- grow with the number of threads.
+--
+-- Each thread blocks until it is cancelled, so it cannot finish before
+-- 'allocateThread' returns.
+prop_noLeakReleasedThreads :: Property
+prop_noLeakReleasedThreads = ioProperty $
+  withRegistry $ \rr -> withRegistry $ \rr2 -> do
+    let allocMany k = replicateM_ k $ do
+          (key, _) <- allocateThread rr (\_ -> forkThread rr2 "t" waitForCancel)
+          void $ release key
+    growth <- growthPerFork allocMany
+    pure $
+      counterexample
+        ("live-byte growth per fork: " <> show growth)
+        (growth < maxGrowthPerFork)
+
+-- | Block until another thread cancels this one.
+waitForCancel :: IO a
+waitForCancel = forever (threadDelay 1)
+
+-- | Run @forkMany n@, then @forkMany (10 * n)@, and return the growth in live
+-- bytes per fork over the second run. The first run fills caches and other
+-- one-time allocations.
+--
+-- Needs @+RTS -T@.
+growthPerFork :: (Int -> IO ()) -> IO Integer
+growthPerFork forkMany = do
+  forkMany n
+  before <- liveBytes
+  forkMany (10 * n)
+  after <- liveBytes
+  -- 'Integer', because 'Word64' wraps round if memory goes down
+  pure $ (toInteger after - toInteger before) `div` toInteger (10 * n)
+ where
+  n = 10000
+
+  liveBytes = do
+    performMajorGC
+    gcdetails_live_bytes . gc <$> getRTSStats
+
+-- | If the registry keeps data for a thread after it stops, each fork adds at least
+-- one list or map cell plus the value in it. That is at least 40 bytes on a
+-- 64-bit machine. The bound is 16 bytes per fork.
+--
+-- 'growthPerFork' counts all live data, not only the registry. Thus:
+--
+-- * If unrelated live data grows by 16 bytes per fork or more, a test fails
+--   with no leak.
+-- * If unrelated live data shrinks by more than 40 - 16 = 24 bytes per fork, a
+--   40-byte leak shows as less than 16, and a test misses it.
+--
+-- With GHC 9.10 and each batch on its own closed registry, unrelated live data
+-- grew by about 1 KB over a batch of 100000 forks, which is 0 bytes per fork.
+-- The bound 16 keeps a margin of the same size on each side.
+maxGrowthPerFork :: Integer
+maxGrowthPerFork = 16
 
 {-------------------------------------------------------------------------------
   For running things from ghci
