@@ -323,10 +323,11 @@ newThread ::
 newThread alive parentReg = \shouldLink -> do
   comms <- atomically $ newTQueue
   spawned <- newEmptyMVar
+  started <- newEmptyMVar
 
   thread <- forkThread parentReg "newThread" $
     withRegistry $ \childReg ->
-      threadBody childReg spawned comms
+      threadBody childReg spawned started comms
   case shouldLink of
     LinkFromParent _ -> linkToRegistry thread
     DontLink -> return ()
@@ -339,19 +340,24 @@ newThread alive parentReg = \shouldLink -> do
           , threadComms = comms
           }
 
-  -- Make sure to register thread before starting it
-  atomically $ modifyTVar alive (testThread :)
   putMVar spawned testThread
+  -- Return only when the thread is in 'alive'
+  takeMVar started
   return testThread
  where
   threadBody ::
     ResourceRegistry m ->
     StrictMVar m (TestThread m) ->
+    StrictMVar m () ->
     StrictTQueue m (QueuedInstr m) ->
     m ()
-  threadBody childReg spawned comms = do
+  threadBody childReg spawned started comms = do
     us <- readMVar spawned
-    loop us `finally` (atomically $ modifyTVar alive (delete us))
+    -- If the thread is cancelled before this point, it is never in 'alive'.
+    bracket_
+      (atomically $ modifyTVar alive (us :))
+      (atomically $ modifyTVar alive (delete us))
+      (putMVar started () >> loop us)
    where
     loop :: TestThread m -> m ()
     loop us = do
