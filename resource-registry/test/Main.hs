@@ -70,6 +70,7 @@ main =
       "ResourceRegistry"
       [ testProperty "sequential" prop_sequential
       , testProperty "released threads do not leak" $ once prop_noLeakReleasedThreads
+      , testProperty "finished threads do not leak" $ once prop_noLeakFinishedThreads
       ]
 
 {-------------------------------------------------------------------------------
@@ -659,6 +660,19 @@ prop_noLeakReleasedThreads = ioProperty $
       counterexample
         ("live-byte growth per fork: " <> show growth)
         (growth < maxGrowthPerFork)
+
+-- | Fork threads that finish at once, on one open registry. Check that live
+-- memory does not grow with the number of threads.
+--
+-- A thread can finish before 'forkThread' adds its resource to the registry.
+prop_noLeakFinishedThreads :: Property
+prop_noLeakFinishedThreads = ioProperty $ withRegistry $ \rr -> do
+  let forkMany k = replicateM_ k $ forkThread rr "t" (pure ()) >>= waitThread
+  growth <- growthPerFork forkMany
+  pure $
+    counterexample
+      ("live-byte growth per fork: " <> show growth)
+      (growth < maxGrowthPerFork)
 
 -- | Block until another thread cancels this one.
 waitForCancel :: IO a
