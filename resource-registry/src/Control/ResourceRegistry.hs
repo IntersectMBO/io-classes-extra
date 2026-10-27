@@ -1334,6 +1334,12 @@ forkThread rr label body =
 
   body' :: ResourceId -> m a
   body' rid = do
+    -- 'allocateThread' adds the resource of this thread after 'async' starts
+    -- the thread. If the thread ran 'unregisterThread' before that, the
+    -- resource stays in the registry until the registry is closed.
+    atomically $ do
+      st <- readTVar (registryState rr)
+      check (Map.member rid (registryResources st))
     me <- myThreadId
     labelThread me label
     (registerThread me >> body) `finally` unregisterThread me rid
