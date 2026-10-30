@@ -1,5 +1,13 @@
 # Revision history of `resource-registry`
 
+## 0.4.0.1 - xxxx-xx-xx
+
+* Fix a memory leak: each thread from `forkThread`, `forkLinkedThread`,
+  `withThread`, or `allocateThread` kept one entry in the registry until the
+  registry was closed.
+* Fix a memory leak: a thread that finished before `forkThread` returned
+  stayed in the registry until the registry was closed.
+
 ## 0.4.0.0 - 2026-07-15
 
 * Added `MonadEvaluate m` constraint to multiple functions.
