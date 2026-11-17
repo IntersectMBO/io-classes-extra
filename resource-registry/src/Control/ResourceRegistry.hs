@@ -347,23 +347,6 @@ nextYoungerAge (Age n) = Age (n - 1)
 data RegistryState m = RegistryState
   { registryThreads :: !(KnownThreads m)
   -- ^ Forked threads
-  , registryReleaseThreads :: ![ReleaseThread m]
-  -- ^ The list of releasing actions for threads that were forked from this
-  -- registry.
-  --
-  -- We will cancel these when closing a registry but before actually closing
-  -- the registry. This will guard the case in which a forked thread allocates
-  -- resources in the registry. We would face a race condition among:
-  --
-  -- - The registry killing the thread
-  --
-  -- - The thread allocating something in the now closed registry.
-  --
-  -- The latter case will throw an exception.
-  --
-  -- Note this is separate from 'registryThreads' because one can add threads to
-  -- cancel via 'allocateThread' and still those threads should not be directly
-  -- added to the set of known threads.
   , registryResources :: !(Map ResourceId (Resource m))
   -- ^ Currently allocated resources
   --
@@ -439,8 +422,16 @@ data Resource m = Resource
   -- ^ Context in which the resource was created
   , resourceRelease :: !(Release m)
   -- ^ Deallocate the resource
+  , resourceKind :: !ResourceKind
   }
   deriving (Generic, NoThunks)
+
+-- | Lets 'unsafeReleaseAllBy' find the threads, which it cancels first.
+data ResourceKind
+  = ThreadResource
+  | -- | Any other resource, for example a file handle or a socket.
+    OtherResource
+  deriving (Eq, Generic, NoThunks)
 
 -- | Release the resource, return 'True' when the resource was actually
 -- released, return 'False' when the resource was already released.
@@ -454,10 +445,6 @@ releaseResource Resource{resourceRelease = Release f} = f
 
 instance Show (Release m) where
   show _ = "<<release>>"
-
--- | Release a thread when closing a registry.
-newtype ReleaseThread m = ReleaseThread {releaseThread :: m ()}
-  deriving NoThunks via OnlyCheckWhnfNamed "ReleaseThread" (ReleaseThread m)
 
 {-------------------------------------------------------------------------------
   Internal: pure functions on the registry state
@@ -618,7 +605,6 @@ initState :: RegistryState m
 initState =
   RegistryState
     { registryThreads = KnownThreads Set.empty
-    , registryReleaseThreads = []
     , registryResources = Map.empty
     , registryNextKey = ResourceId 1
     , registryAges = Bimap.empty
@@ -677,10 +663,16 @@ unsafeReleaseAllBy ::
   ResourceRegistry m ->
   m ()
 unsafeReleaseAllBy action context rr = do
-  ts <- updateState rr $ gets registryReleaseThreads
-  mapM_ releaseThread ts
+  -- 'release' on a thread's key cancels the thread. We do this before
+  -- 'action', which marks the registry closed in 'closeRegistry'. Otherwise a
+  -- thread can call 'allocate' after the mark and get
+  -- 'RegistryClosedException'.
+  ts <- updateState rr $ gets $ \s ->
+    [k | (k, r) <- Map.toDescList (registryResources s), resourceKind r == ThreadResource]
+  mapM_ (void . release . ResourceKey rr) ts
 
-  -- Close the registry so that we cannot allocate any further resources
+  -- In 'closeRegistry', 'action' marks the registry closed, so that no
+  -- further resources can be allocated.
   alreadyClosed <- updateState rr $ action (contextCallStack context)
   case alreadyClosed of
     Left _ ->
@@ -1115,7 +1107,18 @@ allocateEither ::
   -- hasn't been released or closed before.
   (a -> m Bool) ->
   m (Either e (ResourceKey m, a))
-allocateEither rr alloc free = do
+allocateEither = allocateEither' OtherResource
+
+-- | 'allocateEither' for a resource of the given kind
+allocateEither' ::
+  forall m e a.
+  (MonadSTM m, MonadMask m, MonadThread m, MonadEvaluate m, HasCallStack) =>
+  ResourceKind ->
+  ResourceRegistry m ->
+  (ResourceId -> m (Either e a)) ->
+  (a -> m Bool) ->
+  m (Either e (ResourceKey m, a))
+allocateEither' kind rr alloc free = do
   context <- captureContext
   ensureKnownThread rr context
   -- We check if the registry has been closed when we allocate the key, so
@@ -1150,6 +1153,7 @@ allocateEither rr alloc free = do
     Resource
       { resourceContext = context
       , resourceRelease = Release $ free a
+      , resourceKind = kind
       }
 
 throwRegistryClosed ::
@@ -1298,15 +1302,13 @@ waitAnyThread ts = snd <$> waitAny (map threadAsync ts)
 allocateThread ::
   (MonadMask m, MonadAsync m, MonadEvaluate m, HasCallStack) =>
   ResourceRegistry m -> (ResourceId -> m (Thread m a)) -> m (ResourceKey m, Thread m a)
-allocateThread rr alloc = do
-  (k, t) <- allocate rr alloc cancelThread
-  updateState rr $
-    modify
-      ( \s ->
-          let !r = ReleaseThread (void (release k))
-           in s{registryReleaseThreads = r : registryReleaseThreads s}
-      )
-  pure (k, t)
+allocateThread rr alloc =
+  mustBeRight
+    <$> allocateEither'
+      ThreadResource
+      rr
+      (fmap Right . alloc)
+      (\t -> cancelThread t >> return True)
 
 -- | Fork a new thread
 forkThread ::
@@ -1332,6 +1334,12 @@ forkThread rr label body =
 
   body' :: ResourceId -> m a
   body' rid = do
+    -- 'allocateThread' adds the resource of this thread after 'async' starts
+    -- the thread. If the thread ran 'unregisterThread' before that, the
+    -- resource stays in the registry until the registry is closed.
+    atomically $ do
+      st <- readTVar (registryState rr)
+      check (Map.member rid (registryResources st))
     me <- myThreadId
     labelThread me label
     (registerThread me >> body) `finally` unregisterThread me rid

@@ -73,6 +73,7 @@ test-suite resource-registry-test
   type: exitcode-stdio-1.0
   hs-source-dirs: test
   main-is: Main.hs
+  ghc-options: -with-rtsopts=-T
   other-modules:
     Test.Util.QSM
     Test.Util.SOP
