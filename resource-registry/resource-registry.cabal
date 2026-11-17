@@ -75,6 +75,7 @@ test-suite resource-registry-test
   main-is: Main.hs
   ghc-options: -with-rtsopts=-T
   other-modules:
+    Test.Close
     Test.Util.QSM
     Test.Util.SOP
     Test.Util.ToExpr
@@ -84,6 +85,7 @@ test-suite resource-registry-test
     containers,
     generics-sop,
     io-classes:{io-classes, si-timers, strict-mvar, strict-stm},
+    io-sim,
     mtl,
     QuickCheck,
     quickcheck-state-machine:no-vendored-treediff,

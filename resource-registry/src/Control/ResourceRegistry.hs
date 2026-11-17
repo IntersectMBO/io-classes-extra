@@ -663,17 +663,33 @@ unsafeReleaseAllBy ::
   ResourceRegistry m ->
   m ()
 unsafeReleaseAllBy action context rr = do
-  -- 'release' on a thread's key cancels the thread. We do this before
-  -- 'action', which marks the registry closed in 'closeRegistry'. Otherwise a
-  -- thread can call 'allocate' after the mark and get
+  -- 'release' on a thread's key cancels the thread. We cancel every thread
+  -- before 'action', which marks the registry closed in 'closeRegistry'.
+  -- Otherwise a thread can call 'allocate' after the mark and get
   -- 'RegistryClosedException'.
-  ts <- updateState rr $ gets $ \s ->
-    [k | (k, r) <- Map.toDescList (registryResources s), resourceKind r == ThreadResource]
-  mapM_ (void . release . ResourceKey rr) ts
+  --
+  -- A thread we cancel may fork another one before it ends (a fork already
+  -- under way finishes, since 'forkThread' allocates under 'mask_'), so one
+  -- pass over the threads is not enough. We repeat until a transaction finds
+  -- no thread, and run 'action' in that same transaction, so that no thread
+  -- can be forked in between.
+  let cancelThreadsThenAct = do
+        r <- updateState rr $ do
+          ts <-
+            gets $ \s ->
+              [k | (k, r) <- Map.toDescList (registryResources s), resourceKind r == ThreadResource]
+          if null ts
+            then Right <$> action (contextCallStack context)
+            else pure (Left ts)
+        case r of
+          Left ts -> do
+            mapM_ (void . release . ResourceKey rr) ts
+            cancelThreadsThenAct
+          Right result -> pure result
 
   -- In 'closeRegistry', 'action' marks the registry closed, so that no
   -- further resources can be allocated.
-  alreadyClosed <- updateState rr $ action (contextCallStack context)
+  alreadyClosed <- cancelThreadsThenAct
   case alreadyClosed of
     Left _ ->
       return ()

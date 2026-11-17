@@ -51,6 +51,7 @@ import GHC.Generics (Generic, Generic1)
 import GHC.Stats (GCDetails (..), RTSStats (..), getRTSStats)
 import Generics.SOP qualified as SOP
 import System.Mem (performMajorGC)
+import Test.Close qualified
 import Test.QuickCheck hiding (forAll)
 import Test.QuickCheck.Monadic hiding (run)
 import Test.StateMachine
@@ -71,6 +72,7 @@ main =
       [ testProperty "sequential" prop_sequential
       , testProperty "released threads do not leak" $ once prop_noLeakReleasedThreads
       , testProperty "finished threads do not leak" $ once prop_noLeakFinishedThreads
+      , Test.Close.tests
       ]
 
 {-------------------------------------------------------------------------------
