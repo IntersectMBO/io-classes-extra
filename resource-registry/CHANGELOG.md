@@ -2,6 +2,13 @@
 
 ## 0.4.0.1 - xxxx-xx-xx
 
+* Fix `closeRegistry` (and `releaseAll`) missing a thread forked while it
+  cancels the registry's threads: such a thread could allocate on the closed
+  registry and get `RegistryClosedException` during a normal shutdown
+  ([#25](https://github.com/IntersectMBO/io-classes-extra/issues/25)). The
+  threads are now cancelled until none is left, and the registry is marked
+  closed in the transaction that finds none.
+
 * Fix a memory leak: each thread from `forkThread`, `forkLinkedThread`,
   `withThread`, or `allocateThread` kept one entry in the registry until the
   registry was closed.
