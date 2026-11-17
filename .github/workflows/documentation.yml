@@ -35,7 +35,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Setup Haskell
       id: setup-haskell
@@ -52,7 +52,7 @@ jobs:
       # The last step generates dist-newstyle/cache/plan.json for the cache key.
 
     - name: Cache cabal store
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       env:
         cache-name: ${{ runner.os }}-${{ env.ghc }}-documentation-cabal-store
       with:
@@ -68,7 +68,7 @@ jobs:
         tar vzcf haddocks.tgz ./haddocks
 
     - name: Upload haddocks as an artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: haddocks
         path: haddocks.tgz
@@ -96,13 +96,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Download haddocks artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: haddocks
 
@@ -111,10 +111,10 @@ jobs:
           tar vzxf haddocks.tgz
 
       - name: Upload haddocks artifact to pages
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: ./haddocks
 
       - name: Deploy to GitHub pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
