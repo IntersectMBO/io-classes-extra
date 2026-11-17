@@ -76,6 +76,7 @@ test-suite resource-registry-test
   ghc-options: -with-rtsopts=-T
   other-modules:
     Test.Close
+    Test.Untracked
     Test.Util.QSM
     Test.Util.SOP
     Test.Util.ToExpr

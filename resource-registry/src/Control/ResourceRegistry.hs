@@ -657,13 +657,16 @@ releaseAllBy action rr = do
 
 -- | Unsafe version of 'releaseAllBy'.
 unsafeReleaseAllBy ::
-  (MonadMask m, MonadThread m, MonadSTM m, MonadEvaluate m, HasCallStack) =>
+  (MonadMask m, MonadThread m, MonadSTM m) =>
   (PrettyCallStack -> State (RegistryState m) (Either PrettyCallStack [ResourceId])) ->
   Context m ->
   ResourceRegistry m ->
   m ()
 unsafeReleaseAllBy action context rr = do
-  -- 'release' on a thread's key cancels the thread. We cancel every thread
+  -- The caller has been checked by 'releaseAllBy', or doesn't need to be (for
+  -- 'unsafeReleaseAll'), so we use 'unsafeRelease' throughout.
+  --
+  -- Releasing a thread's key cancels the thread. We cancel every thread
   -- before 'action', which marks the registry closed in 'closeRegistry'.
   -- Otherwise a thread can call 'allocate' after the mark and get
   -- 'RegistryClosedException'.
@@ -683,7 +686,7 @@ unsafeReleaseAllBy action context rr = do
             else pure (Left ts)
         case r of
           Left ts -> do
-            mapM_ (void . release . ResourceKey rr) ts
+            mapM_ (void . unsafeRelease . ResourceKey rr) ts
             cancelThreadsThenAct
           Right result -> pure result
 
@@ -702,7 +705,7 @@ unsafeReleaseAllBy action context rr = do
       -- releasing its resources.)
       -- /If/ a concurrent thread does some cleanup, then some of the calls
       -- to 'release' that we do here might be no-ops.
-      void $ releaseResources rr keys release
+      void $ releaseResources rr keys unsafeRelease
 
 -- | Helper for 'closeRegistry', 'releaseAll', and 'unsafeReleaseAll': release
 -- the resources allocated with the given 'ResourceId's.
