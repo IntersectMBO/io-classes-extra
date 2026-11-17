@@ -17,23 +17,23 @@ tests =
         "Checked"
         [ testGroup
             "IO"
-            [ testProperty "prop_invariantShouldFail" $
-                once $
-                  cppToggle $
-                    monadicIO prop_invariantShouldFail
-            , testProperty "prop_invariantShouldNotFail" $
-                once $
-                  monadicIO prop_invariantShouldNotFail
+            [ testProperty "prop_invariantShouldFail"
+                $ once
+                $ cppToggle
+                $ monadicIO prop_invariantShouldFail
+            , testProperty "prop_invariantShouldNotFail"
+                $ once
+                $ monadicIO prop_invariantShouldNotFail
             ]
         , testGroup
             "IOSim"
-            [ testProperty "prop_invariantShouldFail" $
-                once $
-                  cppToggle $
-                    monadicSim prop_invariantShouldFail
-            , testProperty "prop_invariantShouldNotFail" $
-                once $
-                  monadicSim prop_invariantShouldNotFail
+            [ testProperty "prop_invariantShouldFail"
+                $ once
+                $ cppToggle
+                $ monadicSim prop_invariantShouldFail
+            , testProperty "prop_invariantShouldNotFail"
+                $ once
+                $ monadicSim prop_invariantShouldNotFail
             ]
         ]
     ]
