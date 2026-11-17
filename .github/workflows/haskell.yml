@@ -73,9 +73,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install fourmolu 0.20.0.0
+      - name: Install fourmolu 0.21.0.0
         run: |
-          curl -fsSL https://github.com/fourmolu/fourmolu/releases/download/v0.20.0.0/fourmolu-0.20.0.0-linux-x86_64.zip -o /tmp/fourmolu.zip
+          curl -fsSL https://github.com/fourmolu/fourmolu/releases/download/v0.21.0.0/fourmolu-0.21.0.0-linux-x86_64.zip -o /tmp/fourmolu.zip
           unzip -o /tmp/fourmolu.zip -d /tmp/fourmolu
           sudo install -m 0755 "$(find /tmp/fourmolu -type f | head -n1)" /usr/local/bin/fourmolu
           fourmolu --version

@@ -495,12 +495,12 @@ lockstep m@(Model _ hs) c (At resp) =
 
 generator :: forall m. Model m Symbolic -> Maybe (Gen (At m Cmd Symbolic))
 generator (Model _ hs) =
-  Just $
-    oneof $
-      concat
-        [ withoutHandle
-        , if null hs then [] else withHandle (elements (map fst hs))
-        ]
+  Just
+    $ oneof
+    $ concat
+      [ withoutHandle
+      , if null hs then [] else withHandle (elements (map fst hs))
+      ]
  where
   withoutHandle :: [Gen (At m Cmd Symbolic)]
   withoutHandle =
@@ -636,9 +636,9 @@ prop_sequential' cmds = monadicIO $ do
   reg <- liftIO $ unsafeNewRegistry
   let sm' = sm alive reg
   (hist, _model, res) <- runCommands sm' cmds
-  prettyCommands sm' hist $
-    checkCommandNames cmds $
-      res === Ok
+  prettyCommands sm' hist
+    $ checkCommandNames cmds
+    $ res === Ok
 
 unused :: a
 unused = error "not used during command generation"

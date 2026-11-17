@@ -647,12 +647,12 @@ releaseAllBy ::
   m ()
 releaseAllBy action rr = do
   context <- captureContext
-  unless (contextThreadId context == contextThreadId (registryContext rr)) $
-    throwIO $
-      ResourceRegistryClosedFromWrongThread
-        { resourceRegistryCreatedIn = registryContext rr
-        , resourceRegistryUsedIn = context
-        }
+  unless (contextThreadId context == contextThreadId (registryContext rr))
+    $ throwIO
+    $ ResourceRegistryClosedFromWrongThread
+      { resourceRegistryCreatedIn = registryContext rr
+      , resourceRegistryUsedIn = context
+      }
   unsafeReleaseAllBy action context rr
 
 -- | Unsafe version of 'releaseAllBy'.
@@ -723,9 +723,9 @@ releaseResources ::
   m [Context m]
 releaseResources rr sortedKeys releaser = do
   (exs, mbContexts) <-
-    fmap partitionEithers $
-      forM sortedKeys $
-        try . releaser . ResourceKey rr
+    fmap partitionEithers
+      $ forM sortedKeys
+      $ try . releaser . ResourceKey rr
 
   case prioritize exs of
     Nothing -> return (catMaybes mbContexts)
@@ -1483,12 +1483,12 @@ ensureKnownThread ::
   m ()
 ensureKnownThread rr context = do
   isKnown <- checkIsKnown
-  unless isKnown $
-    throwIO $
-      ResourceRegistryUsedFromUntrackedThread
-        { resourceRegistryCreatedIn = registryContext rr
-        , resourceRegistryUsedIn = context
-        }
+  unless isKnown
+    $ throwIO
+    $ ResourceRegistryUsedFromUntrackedThread
+      { resourceRegistryCreatedIn = registryContext rr
+      , resourceRegistryUsedIn = context
+      }
  where
   checkIsKnown :: m Bool
   checkIsKnown
