@@ -59,6 +59,7 @@ import Test.StateMachine.Types qualified as QSM
 import Test.StateMachine.Types.Rank2 qualified as Rank2
 import Test.Tasty hiding (after)
 import Test.Tasty.QuickCheck hiding (forAll)
+import Test.Untracked qualified
 import Test.Util.QSM
 import Test.Util.SOP
 import Test.Util.ToExpr ()
@@ -73,6 +74,7 @@ main =
       , testProperty "released threads do not leak" $ once prop_noLeakReleasedThreads
       , testProperty "finished threads do not leak" $ once prop_noLeakFinishedThreads
       , Test.Close.tests
+      , Test.Untracked.tests
       ]
 
 {-------------------------------------------------------------------------------

@@ -2,6 +2,11 @@
 
 ## 0.4.0.1 - xxxx-xx-xx
 
+* Fix `unsafeReleaseAll` throwing `ResourceRegistryUsedFromUntrackedThread`
+  when called from a thread the registry doesn't know, as its documentation
+  allows ([#26](https://github.com/IntersectMBO/io-classes-extra/issues/26)).
+  `closeRegistry` and `releaseAll` still check their caller.
+
 * Fix `closeRegistry` (and `releaseAll`) missing a thread forked while it
   cancels the registry's threads: such a thread could allocate on the closed
   registry and get `RegistryClosedException` during a normal shutdown
